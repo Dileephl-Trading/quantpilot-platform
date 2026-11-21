@@ -6,6 +6,7 @@ import com.dileephl.marketscanner.config.MarketSessionService;
 import com.dileephl.marketscanner.config.TradingMode;
 import com.dileephl.marketscanner.config.TradingProfile;
 import com.dileephl.marketscanner.config.TradingProfileService;
+import com.dileephl.marketscanner.config.LiveExecutionProperties;
 import com.dileephl.marketscanner.integration.marketdata.CandleInterval;
 import com.dileephl.marketscanner.integration.zerodha.KiteAuthService;
 import com.dileephl.marketscanner.integration.zerodha.KiteConnectProperties;
@@ -38,12 +39,14 @@ public class AutomatedExecutionService {
     private final ExecutionRequestRepository requests;
     private final AutomationSafetyStateRepository safetyStates;
     private final AuditTrailService audit;
+    private final LiveExecutionProperties liveExecutionProperties;
 
     public AutomatedExecutionService(AutomatedExecutionProperties properties, TradingProfileService profiles,
                                      MarketSessionService sessions, KiteConnectProperties kiteProperties,
                                      KiteAuthService auth, SafetyService safety, ExecutionPreviewService previews,
                                      BrokerOrderExecutionService execution, ExecutionRequestRepository requests,
-                                     AutomationSafetyStateRepository safetyStates, AuditTrailService audit) {
+                                     AutomationSafetyStateRepository safetyStates, AuditTrailService audit,
+                                     LiveExecutionProperties liveExecutionProperties) {
         properties.validate();
         this.properties = properties; this.profiles = profiles; this.sessions = sessions;
         this.kiteProperties = kiteProperties; this.auth = auth; this.safety = safety;
@@ -53,7 +56,7 @@ public class AutomatedExecutionService {
 
     public AutomatedStatus status() {
         TradingProfile profile = profiles.current();
-        return new AutomatedStatus(properties.isEnabled(), profile.mode().name(), kiteProperties.isOrderRoutingEnabled(),
+        return new AutomatedStatus(properties.isEnabled(), liveExecutionProperties.isEnabled(), profile.mode().name(), kiteProperties.isOrderRoutingEnabled(),
                 auth.hasCurrentAccessToken(), safety.state().killSwitchEnabled(), properties.getMaxSignalAgeSeconds(),
                 properties.getMaxOrderQuantity(), properties.getOrderType(), currentSafetyState().uncertainBrokerState());
     }
@@ -135,6 +138,7 @@ public class AutomatedExecutionService {
                          KiteConnectProperties kiteProperties, KiteAuthService auth, SafetyService safety,
                          SignalEngine.Candle candle, CandleInterval interval) {
         if (profile.mode() != TradingMode.LIVE) throw new IllegalStateException("Trading profile is not LIVE");
+        if (!liveExecutionProperties.isEnabled()) throw new IllegalStateException("Live execution master gate is disabled");
         if (!kiteProperties.isOrderRoutingEnabled()) throw new IllegalStateException("Kite order routing is disabled");
         if (!auth.hasCurrentAccessToken()) throw new IllegalStateException("Kite session is not connected");
         if (safety.state().killSwitchEnabled()) throw new IllegalStateException("Kill switch is enabled");
@@ -152,7 +156,7 @@ public class AutomatedExecutionService {
         return safetyStates.findById(1).orElseGet(() -> safetyStates.save(AutomationSafetyStateEntity.initial()));
     }
 
-    public record AutomatedStatus(boolean enabled, String profileMode, boolean routingEnabled,
+    public record AutomatedStatus(boolean enabled, boolean liveExecutionArmed, String profileMode, boolean routingEnabled,
                                   boolean sessionConnected, boolean killSwitchEnabled,
                                   int maxSignalAgeSeconds, long maxOrderQuantity, String orderType,
                                   boolean uncertainBrokerState) { }
