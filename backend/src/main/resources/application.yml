@@ -54,7 +54,8 @@ quantpilot:
     requests-per-minute: ${QUANTPILOT_API_RATE_LIMIT:120}
 
 scanner:
-  live-execution-enabled: false
+  live-execution:
+    enabled: ${LIVE_EXECUTION_ENABLED:false}
   execution:
     status-poll-ms: ${EXECUTION_STATUS_POLL_MS:5000}
     enabled: ${AUTOMATED_EXECUTION_ENABLED:false}
