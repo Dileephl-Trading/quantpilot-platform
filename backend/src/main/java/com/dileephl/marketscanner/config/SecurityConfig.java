@@ -3,12 +3,13 @@ package com.dileephl.marketscanner.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.User;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -21,7 +22,9 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Configuration
 @EnableWebSecurity
@@ -58,7 +61,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
-                        .requestMatchers("/api/v1/auth/login", "/api/v1/auth/logout").permitAll()
+                        .requestMatchers("/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/auth/bootstrap").permitAll()
                         .requestMatchers("/api/v1/integrations/zerodha/callback").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated());
@@ -77,29 +80,35 @@ public class SecurityConfig {
     }
 
     @Bean
-    InMemoryUserDetailsManager userDetailsService(PasswordEncoder passwordEncoder) {
-        if (properties.enabled() && (properties.username().isBlank()
-                || (properties.password().isBlank() && properties.passwordHash().isBlank()))) {
-            throw new IllegalStateException(
-                    "QUANTPILOT_SECURITY_ENABLED=true requires QUANTPILOT_SECURITY_USERNAME and " +
-                    "QUANTPILOT_SECURITY_PASSWORD_HASH (or the development-only password)");
-        }
+    UserDetailsService userDetailsService(JdbcTemplate jdbcTemplate) {
+        return username -> jdbcTemplate.query(
+                "SELECT username, password_hash, roles, enabled FROM app_user WHERE username = ?",
+                resultSet -> {
+                    if (!resultSet.next()) {
+                        throw new UsernameNotFoundException("User not found");
+                    }
 
-        String username = properties.username().isBlank() ? "disabled-user" : properties.username();
-        String credential;
-        if (!properties.passwordHash().isBlank()) {
-            credential = properties.passwordHash().startsWith("{")
-                    ? properties.passwordHash()
-                    : "{bcrypt}" + properties.passwordHash();
-        } else {
-            credential = "{noop}" + (properties.password().isBlank() ? "disabled-password" : properties.password());
-        }
+                    String passwordHash = resultSet.getString("password_hash");
+                    if (passwordHash == null || passwordHash.isBlank()) {
+                        throw new UsernameNotFoundException("User is not configured for login");
+                    }
 
-        return new InMemoryUserDetailsManager(
-                User.withUsername(username)
-                        .password(credential)
-                        .roles("USER")
-                        .build());
+                    String roles = resultSet.getString("roles");
+                    String[] roleNames = Arrays.stream((roles == null ? "USER" : roles).split(","))
+                            .map(String::trim)
+                            .filter(role -> !role.isBlank())
+                            .toArray(String[]::new);
+                    if (roleNames.length == 0) {
+                        roleNames = new String[]{"USER"};
+                    }
+
+                    return User.withUsername(resultSet.getString("username"))
+                            .password(passwordHash.startsWith("{") ? passwordHash : "{bcrypt}" + passwordHash)
+                            .roles(roleNames)
+                            .disabled(!resultSet.getBoolean("enabled"))
+                            .build();
+                },
+                username);
     }
 
     @Bean
