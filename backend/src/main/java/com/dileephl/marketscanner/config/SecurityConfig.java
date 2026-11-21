@@ -3,16 +3,20 @@ package com.dileephl.marketscanner.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
+import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -23,6 +27,7 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
     private final QuantPilotSecurityProperties properties;
+
     public SecurityConfig(QuantPilotSecurityProperties properties) {
         this.properties = properties;
     }
@@ -36,7 +41,13 @@ public class SecurityConfig {
                         .frameOptions(frame -> frame.deny())
                         .contentSecurityPolicy(csp -> csp.policyDirectives(
                                 "default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'")))
-                .addFilterBefore(new ApiRateLimitFilter(properties), BasicAuthenticationFilter.class);
+                .addFilterBefore(new ApiRateLimitFilter(properties), BasicAuthenticationFilter.class)
+                .securityContext(context -> context.requireExplicitSave(true))
+                .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, exception) -> {
+                    response.setStatus(401);
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"error\":\"authentication_required\",\"message\":\"Login required\"}");
+                }));
 
         if (!properties.enabled()) {
             http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
@@ -44,15 +55,25 @@ public class SecurityConfig {
         }
 
         http
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                        .requestMatchers("/api/v1/auth/login", "/api/v1/auth/logout").permitAll()
                         .requestMatchers("/api/v1/integrations/zerodha/callback").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .anyRequest().authenticated())
-                .httpBasic(Customizer.withDefaults());
+                        .anyRequest().authenticated());
 
         return http.build();
+    }
+
+    @Bean
+    AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
+        return configuration.getAuthenticationManager();
+    }
+
+    @Bean
+    SecurityContextRepository securityContextRepository() {
+        return new HttpSessionSecurityContextRepository();
     }
 
     @Bean
@@ -93,7 +114,7 @@ public class SecurityConfig {
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With"));
         configuration.setExposedHeaders(List.of("Retry-After"));
-        configuration.setAllowCredentials(false);
+        configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
