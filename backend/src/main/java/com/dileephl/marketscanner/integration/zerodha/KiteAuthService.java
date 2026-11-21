@@ -43,6 +43,15 @@ public class KiteAuthService {
         this.currentAccessToken = new AtomicReference<>(sessionTokenStore.loadValid().orElse(null));
     }
 
+    /** Compatibility constructor for checksum/login-url unit tests that do not use persistence. */
+    public KiteAuthService(KiteConnectProperties properties, ObjectMapper objectMapper) {
+        this.properties = properties;
+        this.sessionTokenStore = null;
+        this.objectMapper = objectMapper;
+        this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        this.currentAccessToken = new AtomicReference<>();
+    }
+
     public KiteIntegrationStatus status() {
         String state;
         String nextStep;
@@ -65,7 +74,7 @@ public class KiteAuthService {
         return new KiteIntegrationStatus("ZERODHA_KITE", state, properties.isMarketDataEnabled(),
                 properties.hasApiKey(), properties.hasApiSecret(), hasCurrentAccessToken(),
                 properties.getRedirectUrl(), properties.isOrderRoutingEnabled() ? "CONFIGURED_BUT_GATED" : "DISABLED",
-                nextStep, sessionTokenStore.expiry().filter(value -> value.isAfter(Instant.now())).map(Instant::toString).orElse(null));
+                nextStep, sessionExpiry());
     }
 
     public String loginUrl() {
@@ -97,6 +106,7 @@ public class KiteAuthService {
 
     /** Exchanges Kite's single-use request token and persists today's encrypted access token. */
     public void completeLogin(String requestToken) {
+        require(sessionTokenStore != null, "Encrypted Kite session storage is not configured");
         require(properties.hasApiKey() && properties.hasApiSecret(), "Kite API key and secret are required");
         require(requestToken != null && !requestToken.isBlank(), "Kite did not return a request token");
 
@@ -136,12 +146,17 @@ public class KiteAuthService {
 
     public void clearCurrentAccessToken() {
         currentAccessToken.set(null);
-        sessionTokenStore.clear();
+        if (sessionTokenStore != null) sessionTokenStore.clear();
     }
 
     public boolean hasCurrentAccessToken() {
         String token = currentAccessToken.get();
         return token != null && !token.isBlank();
+    }
+
+    private String sessionExpiry() {
+        if (sessionTokenStore == null) return null;
+        return sessionTokenStore.expiry().filter(value -> value.isAfter(Instant.now())).map(Instant::toString).orElse(null);
     }
 
     private Instant nextKiteExpiry() {
