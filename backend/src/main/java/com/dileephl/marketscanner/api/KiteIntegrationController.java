@@ -2,13 +2,15 @@ package com.dileephl.marketscanner.api;
 
 import com.dileephl.marketscanner.integration.zerodha.KiteAuthService;
 import com.dileephl.marketscanner.integration.zerodha.KiteIntegrationStatus;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.net.URI;
 import java.util.Map;
 
 @RestController
@@ -30,28 +32,31 @@ public class KiteIntegrationController {
         return ResponseEntity.ok(Map.of("loginUrl", kiteAuthService.loginUrl()));
     }
 
-    @GetMapping(value = "/callback", produces = MediaType.TEXT_HTML_VALUE)
-    public ResponseEntity<String> callback(@RequestParam(name = "request_token", required = false) String requestToken,
-                                           @RequestParam(name = "status", required = false) String status) {
-        if (!"success".equalsIgnoreCase(status) || requestToken == null || requestToken.isBlank()) {
-            return ResponseEntity.badRequest().body(callbackPage(false,
-                    "Kite login was not completed. Close this page and try again from Market data."));
+    /**
+     * Kite redirects here after login. The token exchange happens server-side and the browser is
+     * redirected back into the existing SPA integration screen, without exposing any token.
+     */
+    @GetMapping("/callback")
+    public ResponseEntity<Void> callback(@RequestParam(name = "request_token", required = false) String requestToken,
+                                         @RequestParam(name = "status", required = false) String status,
+                                         HttpServletRequest request) {
+        boolean success = "success".equalsIgnoreCase(status) && requestToken != null && !requestToken.isBlank();
+        String result = "error";
+        if (success) {
+            try {
+                kiteAuthService.completeLogin(requestToken);
+                result = "connected";
+            } catch (IllegalStateException ignored) {
+                // Do not expose provider details or token material in the redirect URL.
+            }
         }
-        try {
-            kiteAuthService.completeLogin(requestToken);
-            return ResponseEntity.ok(callbackPage(true,
-                    "Kite is connected for today. You can close this page and return to the dashboard."));
-        } catch (IllegalStateException error) {
-            return ResponseEntity.internalServerError().body(callbackPage(false,
-                    "The Kite session could not be created. Check your local configuration and try again."));
-        }
+        String redirect = spaRedirect(request, result);
+        return ResponseEntity.status(303).header(HttpHeaders.LOCATION, redirect).build();
     }
 
-    private String callbackPage(boolean success, String message) {
-        String color = success ? "#0f9d75" : "#c9412e";
-        return "<!doctype html><html><head><meta charset=\"utf-8\"><title>Kite Connect</title></head>"
-                + "<body style=\"font-family:system-ui;max-width:560px;margin:80px auto;padding:24px\">"
-                + "<h1 style=\"color:" + color + "\">" + (success ? "Connected" : "Connection not completed") + "</h1>"
-                + "<p>" + message + "</p></body></html>";
+    private String spaRedirect(HttpServletRequest request, String result) {
+        String origin = request.getScheme() + "://" + request.getServerName()
+                + ((request.getServerPort() == 80 || request.getServerPort() == 443) ? "" : ":" + request.getServerPort());
+        return origin + "/#integration?kite=" + result;
     }
 }
