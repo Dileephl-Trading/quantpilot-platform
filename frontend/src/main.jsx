@@ -23,6 +23,35 @@ function money(value) {
   }).format(Number(value || 0))
 }
 
+
+function LoginScreen({ onLogin, error, busy }) {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+
+  function submit(event) {
+    event.preventDefault()
+    onLogin(username, password)
+  }
+
+  return <main className="login-shell">
+    <section className="login-card">
+      <div className="login-brand"><span className="brand-mark">S</span><div><strong>Signal<span>Desk</span></strong><small>PRIVATE TRADING WORKSPACE</small></div></div>
+      <div className="login-copy">
+        <p className="eyebrow">SECURE ACCESS</p>
+        <h1>Welcome back</h1>
+        <p>Sign in to continue to your private market research workspace.</p>
+      </div>
+      <form className="login-form" onSubmit={submit}>
+        <label><span>Username</span><input autoFocus required value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" /></label>
+        <label><span>Password</span><input required type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" /></label>
+        {error && <div className="login-error"><span>!</span>{error}</div>}
+        <button className="primary full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <span>→</span></button>
+      </form>
+      <div className="login-footnote"><span className="status-dot" /> Local session protected · broker execution remains gated</div>
+    </section>
+  </main>
+}
+
 function App() {
   const [profile, setProfile] = useState(null)
   const [draft, setDraft] = useState(null)
@@ -38,6 +67,36 @@ function App() {
   const [execution, setExecution] = useState(initialExecution)
   const [executionOrders, setExecutionOrders] = useState([])
   const [executionBusy, setExecutionBusy] = useState(false)
+  const [authReady, setAuthReady] = useState(false)
+  const [authenticated, setAuthenticated] = useState(false)
+  const [loginBusy, setLoginBusy] = useState(false)
+  const [loginError, setLoginError] = useState(null)
+
+
+  async function login(username, password) {
+    setLoginBusy(true)
+    setLoginError(null)
+    try {
+      await request('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      })
+      setAuthenticated(true)
+    } catch (error) {
+      setLoginError(error.message || 'Unable to sign in')
+    } finally {
+      setLoginBusy(false)
+    }
+  }
+
+  async function logout() {
+    try { await request('/api/v1/auth/logout', { method: 'POST' }) } catch (_) {}
+    setAuthenticated(false)
+    setProfile(null)
+    setDraft(null)
+    setActive('overview')
+  }
 
   const localRisk = useMemo(() => {
     const entry = Number(order.entryPrice)
@@ -47,10 +106,18 @@ function App() {
       ? Math.abs(entry - stop) * quantity : 0
   }, [order])
 
-  async function request(path, options) {
-    const response = await fetch(`${apiBase}${path}`, options)
+  async function request(path, options = {}) {
+    const response = await fetch(\`\${apiBase}\${path}\`, {
+      ...options,
+      credentials: 'include',
+      headers: { ...(options.headers || {}) }
+    })
     const data = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(data.message || data.error || 'Request failed')
+    if (!response.ok) {
+      const error = new Error(data.message || data.error || 'Request failed')
+      error.status = response.status
+      throw error
+    }
     return data
   }
 
@@ -67,7 +134,14 @@ function App() {
     }
   }
 
-  useEffect(() => { loadProfile() }, [])
+  useEffect(() => {
+    let cancelled = false
+    request('/api/v1/auth/me')
+      .then(() => { if (!cancelled) setAuthenticated(true) })
+      .catch(error => { if (!cancelled && error.status === 401) setAuthenticated(false) })
+      .finally(() => { if (!cancelled) setAuthReady(true) })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     if (!notice) return undefined
@@ -93,17 +167,20 @@ function App() {
     }
   }
 
-  useEffect(() => { loadKiteStatus() }, [])
+  useEffect(() => {
+    if (authenticated) loadKiteStatus()
+  }, [authenticated])
 
   async function loadMarketSession() {
     try { setMarketSession(await request('/api/v1/market-session/status')) } catch (_) { setMarketSession(null) }
   }
 
   useEffect(() => {
+    if (!authenticated) return undefined
     loadMarketSession()
     const timer = window.setInterval(loadMarketSession, 30000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [authenticated])
 
   async function saveProfile(event) {
     event.preventDefault()
@@ -160,7 +237,11 @@ function App() {
     try { setExecutionOrders(await request('/api/v1/execution/orders')) } catch (error) { setNotice({ tone: 'error', text: error.message }) }
   }
 
-  useEffect(() => { if (active === 'execution') refreshExecution() }, [active])
+  useEffect(() => { if (authenticated) loadProfile() }, [authenticated])
+  useEffect(() => { if (active === 'execution' && authenticated) refreshExecution() }, [active, authenticated])
+
+  if (!authReady) return <main className="login-shell"><section className="login-card login-loading"><span className="brand-mark">S</span><p>Checking secure session…</p></section></main>
+  if (!authenticated) return <LoginScreen onLogin={login} error={loginError} busy={loginBusy} />
 
   return <div className="app-shell" onClick={handleButtonFeedback}>
     <aside className="sidebar">
@@ -180,6 +261,7 @@ function App() {
       <div className="sidebar-footer">
         <div className="paper-chip"><span className="dot" /> PAPER MODE</div>
         <p>Your browser talks only to the local API.</p>
+        <button className="logout-button" onClick={logout}>Sign out</button>
       </div>
     </aside>
 
