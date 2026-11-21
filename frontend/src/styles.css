@@ -1109,3 +1109,8 @@ button {
 .sidebar .nav-link > span:not(.nav-chevron) { font-size: 15px !important; }
 .sidebar .nav-parent > span:nth-child(2) { font-size: 13px !important; }
 .sidebar .subnav-link { font-size: 12px !important; font-weight: 500 !important; line-height: 1.25; }
+
+.group-action { display: inline-flex; gap: 5px; align-items: stretch; }
+.group-remove-button { color: #b56b72 !important; border-color: rgba(181,107,114,.35) !important; }
+.group-remove-button:hover:not(:disabled) { color: #a24d57 !important; }
+@media (max-width: 610px) { .group-action { flex: 1 1 145px; } .group-action > button { flex: 1; } }
