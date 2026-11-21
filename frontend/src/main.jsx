@@ -107,7 +107,7 @@ function App() {
   }, [order])
 
   async function request(path, options = {}) {
-    const response = await fetch(\`\${apiBase}\${path}\`, {
+    const response = await fetch(`${apiBase}${path}`, {
       ...options,
       credentials: 'include',
       headers: { ...(options.headers || {}) }
