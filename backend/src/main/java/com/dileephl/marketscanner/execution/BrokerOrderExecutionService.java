@@ -3,6 +3,7 @@ package com.dileephl.marketscanner.execution;
 import com.dileephl.marketscanner.audit.AuditTrailService;
 import com.dileephl.marketscanner.config.TradingMode;
 import com.dileephl.marketscanner.config.TradingProfileService;
+import com.dileephl.marketscanner.config.LiveExecutionProperties;
 import com.dileephl.marketscanner.integration.zerodha.KiteOrderExecutionProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,10 +19,12 @@ public class BrokerOrderExecutionService {
     private final ExecutionRequestRepository requests;
     private final ExecutionOrderEventRepository events;
     private final AuditTrailService audit;
+    private final LiveExecutionProperties liveExecutionProperties;
 
     public BrokerOrderExecutionService(TradingProfileService profiles, ExecutionPreviewService previews, KiteOrderExecutionProvider provider, SafetyService safety,
-                                       ExecutionRequestRepository requests, ExecutionOrderEventRepository events, AuditTrailService audit) {
-        this.profiles = profiles; this.previews = previews; this.provider = provider; this.safety = safety; this.requests = requests; this.events = events; this.audit = audit;
+                                       ExecutionRequestRepository requests, ExecutionOrderEventRepository events, AuditTrailService audit,
+                                       LiveExecutionProperties liveExecutionProperties) {
+        this.profiles = profiles; this.previews = previews; this.provider = provider; this.safety = safety; this.requests = requests; this.events = events; this.audit = audit; this.liveExecutionProperties = liveExecutionProperties;
     }
 
     @Transactional
@@ -126,6 +129,7 @@ public class BrokerOrderExecutionService {
 
     private void requireLive() {
         if (safety.state().killSwitchEnabled()) throw new IllegalStateException("Kill switch is enabled; broker order routing is blocked");
+        if (!liveExecutionProperties.isEnabled()) throw new IllegalStateException("Live execution master gate is disabled");
         if (profiles.current().mode() != TradingMode.LIVE) {
             throw new IllegalStateException("Broker order routing requires explicit LIVE trading mode; current mode is PAPER/DRY_RUN");
         }
