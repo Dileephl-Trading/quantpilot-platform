@@ -25,6 +25,13 @@ spring:
     validate-migration-naming: true
 
 server:
+
+  servlet:
+    session:
+      cookie:
+        http-only: ${SESSION_COOKIE_HTTP_ONLY:true}
+        secure: ${SESSION_COOKIE_SECURE:false}
+        same-site: ${SESSION_COOKIE_SAME_SITE:strict}
   address: ${SERVER_ADDRESS:127.0.0.1}
   port: ${SERVER_PORT:8080}
   error:
@@ -39,6 +46,17 @@ management:
     health:
       probes:
         enabled: true
+
+
+quantpilot:
+  security:
+    # Keep false only for local development. Set true behind HTTPS/VPN before deployment.
+    enabled: ${QUANTPILOT_SECURITY_ENABLED:false}
+    username: ${QUANTPILOT_SECURITY_USERNAME:}
+    password: ${QUANTPILOT_SECURITY_PASSWORD:}
+    password-hash: ${QUANTPILOT_SECURITY_PASSWORD_HASH:}
+    allowed-origin: ${QUANTPILOT_ALLOWED_ORIGIN:http://127.0.0.1:8080}
+    requests-per-minute: ${QUANTPILOT_API_RATE_LIMIT:120}
 
 scanner:
   live-execution-enabled: false
