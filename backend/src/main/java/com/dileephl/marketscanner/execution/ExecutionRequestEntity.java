@@ -25,21 +25,46 @@ class ExecutionRequestEntity {
     @Column(length = 16) private String product;
     @Column(length = 16) private String exchange;
     @Column(length = 16) private String validity;
+    @Column(nullable = false) private boolean protective;
+    @Column(name = "parent_order_id", length = 64) private String parentOrderId;
     @Column(nullable = false, columnDefinition = "TEXT") private String message;
     @Column(nullable = false) private OffsetDateTime createdAt;
     @Column(nullable = false) private OffsetDateTime updatedAt;
+
     protected ExecutionRequestEntity() { }
+
     static ExecutionRequestEntity from(String key, BrokerOrderRequest request, BrokerOrderResponse response) {
-        ExecutionRequestEntity e = new ExecutionRequestEntity(); e.id = UUID.randomUUID(); e.idempotencyKey = key;
-        e.orderId = response.orderId(); e.symbol = response.symbol() == null ? "" : response.symbol();
-        e.side = response.side() == null ? "" : response.side().name(); e.quantity = response.quantity();
-        e.status = response.status().name(); e.filledQuantity = response.filledQuantity(); e.averagePrice = response.averagePrice();
-        e.orderType = request.orderType(); e.price = request.price(); e.triggerPrice = request.triggerPrice(); e.stopPrice = request.stopPrice();
+        return from(key, request, response, null, false);
+    }
+
+    static ExecutionRequestEntity from(String key, BrokerOrderRequest request, BrokerOrderResponse response,
+                                       String parentOrderId, boolean protective) {
+        ExecutionRequestEntity e = new ExecutionRequestEntity();
+        e.id = UUID.randomUUID();
+        e.idempotencyKey = key;
+        e.orderId = response.orderId();
+        e.symbol = response.symbol() == null ? "" : response.symbol();
+        e.side = response.side() == null ? "" : response.side().name();
+        e.quantity = response.quantity();
+        e.status = response.status().name();
+        e.filledQuantity = response.filledQuantity();
+        e.averagePrice = response.averagePrice();
+        e.orderType = request.orderType();
+        e.price = request.price();
+        e.triggerPrice = request.triggerPrice();
+        e.stopPrice = request.stopPrice();
         e.requestFingerprint = BrokerOrderFingerprint.of(request);
-        e.product = request.product(); e.exchange = request.exchange(); e.validity = request.validity();
-        e.message = response.message() == null ? "" : response.message(); e.createdAt = response.observedAt(); e.updatedAt = response.observedAt();
+        e.product = request.product();
+        e.exchange = request.exchange();
+        e.validity = request.validity();
+        e.parentOrderId = parentOrderId;
+        e.protective = protective;
+        e.message = response.message() == null ? "" : response.message();
+        e.createdAt = response.observedAt();
+        e.updatedAt = response.observedAt();
         return e;
     }
+
     void apply(BrokerOrderResponse response) {
         status = response.status().name();
         filledQuantity = response.filledQuantity();
@@ -50,14 +75,29 @@ class ExecutionRequestEntity {
         message = response.message() == null ? "" : response.message();
         updatedAt = response.observedAt();
     }
+
     String orderId() { return orderId; }
     String symbol() { return symbol; }
     String side() { return side; }
     String status() { return status; }
+    long quantity() { return quantity; }
+    long filledQuantity() { return filledQuantity; }
+    BigDecimal stopPrice() { return stopPrice; }
+    String product() { return product; }
+    String exchange() { return exchange; }
+    String validity() { return validity; }
+    boolean protective() { return protective; }
+    String parentOrderId() { return parentOrderId; }
     OffsetDateTime updatedAt() { return updatedAt; }
     OffsetDateTime createdAt() { return createdAt; }
-    boolean matches(BrokerOrderRequest request) { return requestFingerprint == null || requestFingerprint.equals(BrokerOrderFingerprint.of(request)); }
-    BrokerOrderResponse response() { return new BrokerOrderResponse(orderId, symbol.isBlank() ? null : symbol,
-            side.isBlank() ? null : OrderSide.valueOf(side), quantity, filledQuantity, averagePrice,
-            BrokerOrderStatus.valueOf(status), message, createdAt); }
+
+    boolean matches(BrokerOrderRequest request) {
+        return requestFingerprint == null || requestFingerprint.equals(BrokerOrderFingerprint.of(request));
+    }
+
+    BrokerOrderResponse response() {
+        return new BrokerOrderResponse(orderId, symbol.isBlank() ? null : symbol,
+                side.isBlank() ? null : OrderSide.valueOf(side), quantity, filledQuantity, averagePrice,
+                BrokerOrderStatus.valueOf(status), message, createdAt);
+    }
 }
