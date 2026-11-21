@@ -66,6 +66,19 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
                 null, BrokerOrderStatus.PENDING, "Modification request submitted to Kite", now());
     }
 
+    @Override public List<BrokerOrderResponse> listOrders() {
+        requireRoutingEnabled();
+        JsonNode data = send("GET", "/orders", "");
+        List<BrokerOrderResponse> orders = new ArrayList<>();
+        if (data.isArray()) {
+            for (JsonNode row : data) {
+                String orderId = row.path("order_id").asText("");
+                if (!orderId.isBlank()) orders.add(fromKite(row, orderId));
+            }
+        }
+        return List.copyOf(orders);
+    }
+
     @Override public List<BrokerOrderResponse> cancelOpenOrders() {
         requireRoutingEnabled();
         JsonNode data = send("GET", "/orders", "");
