@@ -82,7 +82,29 @@ public class LiveMarketService {
 
     @Transactional
     public List<LiveWatchlistView> addGroup(String group) {
-        Set<String> symbols = switch (group == null ? "" : group.toLowerCase(Locale.ROOT)) {
+        Set<String> symbols = symbolsForGroup(group);
+        List<MarketInstrumentEntity> instruments = instrumentRepository.findByProviderAndExchangeOrderByTradingsymbolAsc(liveFeed.providerName(), "NSE");
+        instruments.stream().filter(item -> symbols.contains(item.getTradingsymbol())).forEach(item -> addToWatchlist(item.getInstrumentToken()));
+        return watchlist();
+    }
+
+    @Transactional
+    public List<LiveWatchlistView> removeGroup(String group) {
+        if (!"STOPPED".equalsIgnoreCase(liveFeed.status().state())) {
+            throw new IllegalStateException("Stop the live monitor before removing a symbol group");
+        }
+        Set<String> symbols = symbolsForGroup(group);
+        watchlistRepository.findByProviderAndEnabledTrueOrderBySymbolAsc(liveFeed.providerName()).stream()
+                .filter(entry -> symbols.contains(entry.getSymbol()))
+                .forEach(entry -> {
+                    entry.disable();
+                    watchlistRepository.save(entry);
+                });
+        return watchlist();
+    }
+
+    private Set<String> symbolsForGroup(String group) {
+        return switch (group == null ? "" : group.toLowerCase(Locale.ROOT)) {
             case "bank-nifty", "banking" -> SectorClassifier.symbols("BANKING");
             case "it" -> SectorClassifier.symbols("IT");
             case "auto" -> SectorClassifier.symbols("AUTO");
@@ -91,9 +113,6 @@ public class LiveMarketService {
             case "fmcg" -> SectorClassifier.symbols("FMCG");
             default -> throw new IllegalArgumentException("Unknown symbol group: " + group);
         };
-        List<MarketInstrumentEntity> instruments = instrumentRepository.findByProviderAndExchangeOrderByTradingsymbolAsc(liveFeed.providerName(), "NSE");
-        instruments.stream().filter(item -> symbols.contains(item.getTradingsymbol())).forEach(item -> addToWatchlist(item.getInstrumentToken()));
-        return watchlist();
     }
 
     @Transactional(readOnly = true)
