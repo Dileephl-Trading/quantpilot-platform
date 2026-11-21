@@ -73,7 +73,7 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
         if (data.isArray()) {
             for (JsonNode row : data) {
                 String status = row.path("status").asText("").toUpperCase();
-                if ("OPEN".equals(status) || "TRIGGER PENDING".equals(status)) {
+                if (List.of("OPEN", "TRIGGER PENDING", "OPEN PENDING", "AMO REQ RECEIVED", "MODIFY PENDING").contains(status)) {
                     String orderId = row.path("order_id").asText();
                     if (!orderId.isBlank()) cancelled.add(cancel(orderId));
                 }
@@ -87,12 +87,15 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
         long filledQuantity = row.path("filled_quantity").asLong(0);
         BrokerOrderStatus mapped = switch (status) {
             case "OPEN", "TRIGGER PENDING" -> filledQuantity > 0 ? BrokerOrderStatus.PARTIALLY_FILLED : BrokerOrderStatus.OPEN;
+            case "OPEN PENDING", "AMO REQ RECEIVED", "MODIFY PENDING", "CANCEL PENDING", "VALIDATION PENDING" -> BrokerOrderStatus.PENDING;
             case "COMPLETE" -> BrokerOrderStatus.COMPLETE;
             case "CANCELLED" -> BrokerOrderStatus.CANCELLED;
             case "REJECTED" -> BrokerOrderStatus.REJECTED;
             default -> BrokerOrderStatus.UNKNOWN;
         };
-        OrderSide side = "BUY".equalsIgnoreCase(row.path("transaction_type").asText()) ? OrderSide.BUY : OrderSide.SELL;
+        String transactionType = row.path("transaction_type").asText("");
+        OrderSide side = "BUY".equalsIgnoreCase(transactionType) ? OrderSide.BUY
+                : "SELL".equalsIgnoreCase(transactionType) ? OrderSide.SELL : null;
         return new BrokerOrderResponse(orderId, row.path("tradingsymbol").asText(null), side,
                 row.path("quantity").asLong(0), filledQuantity,
                 decimalOrNull(row.path("average_price")), mapped, row.path("status_message").asText(null), now());
@@ -110,8 +113,13 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
         try {
             HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             JsonNode root = mapper.readTree(response.body());
+            if (response.statusCode() == 403) {
+                authService.clearCurrentAccessToken();
+                throw new IllegalStateException("Kite session expired or was rejected; complete today's Kite login again");
+            }
             if (response.statusCode() < 200 || response.statusCode() >= 300 || !"success".equalsIgnoreCase(root.path("status").asText())) {
-                throw new IllegalStateException("Kite order API failed with HTTP " + response.statusCode() + ": " + root.path("message").asText("unknown error"));
+                String message = root.path("message").asText(root.path("error_type").asText("unknown error"));
+                throw new IllegalStateException("Kite order API failed with HTTP " + response.statusCode() + ": " + message);
             }
             return root.path("data");
         } catch (IOException error) { throw new IllegalStateException("Unable to call Kite order API", error); }
