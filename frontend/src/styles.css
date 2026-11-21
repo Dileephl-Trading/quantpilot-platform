@@ -1103,3 +1103,9 @@ button {
 .nav-parent > span:nth-child(2) { width: auto !important; flex: 1; text-align: left; white-space: nowrap; }
 .nav-parent > span.nav-chevron { width: auto !important; flex: 0 0 auto; margin-left: auto; }
 .subnav { margin-left: 22px; }
+
+/* Keep sidebar typography compact and readable */
+.sidebar .nav-link { font-size: 13px !important; font-weight: 600 !important; line-height: 1.25; }
+.sidebar .nav-link > span:not(.nav-chevron) { font-size: 15px !important; }
+.sidebar .nav-parent > span:nth-child(2) { font-size: 13px !important; }
+.sidebar .subnav-link { font-size: 12px !important; font-weight: 500 !important; line-height: 1.25; }
