@@ -796,3 +796,104 @@ button {
     letter-spacing: -0.025em;
   }
 }
+
+
+/* Final contrast correction for light surfaces */
+.brand {
+  color: #354052 !important;
+}
+
+.brand > span:last-child span {
+  color: #16a7a4 !important;
+}
+
+.topbar h1,
+.panel h2,
+.panel-heading h2,
+.quick-action h2,
+.journal-help h2,
+.modal h2,
+.contract-card h2,
+.verification-card h2,
+.live-card h2,
+.candle-panel h2,
+.integration-card h2 {
+  color: #273244 !important;
+  opacity: 1 !important;
+  font-weight: 800 !important;
+}
+
+.topbar h1 {
+  font-size: clamp(25px, 3vw, 34px);
+  letter-spacing: -1.25px;
+}
+
+.panel-heading h2,
+.quick-action h2,
+.journal-help h2,
+.modal h2 {
+  color: #303b4e !important;
+}
+
+.panel-heading p,
+.quick-action p:not(.eyebrow),
+.journal-help p:not(.eyebrow),
+.panel > p,
+.safety-banner p,
+.check-item,
+.checklist .check-item,
+.live-grid p,
+.live-grid li,
+.live-grid li small,
+.journal-help li,
+.journal-help ol {
+  color: #66748a !important;
+  opacity: 1 !important;
+}
+
+.check-item {
+  background: rgba(238, 242, 247, .72) !important;
+  border-bottom-color: rgba(151, 166, 184, .22) !important;
+  font-weight: 600;
+}
+
+.check-item span {
+  color: #16a78f !important;
+}
+
+.metric-card p,
+.metric-card span,
+.result-stat span,
+.calculated-risk span,
+.candle-heading small,
+.integration-row span,
+.instrument-option span,
+.verification-result span {
+  color: #7a879a !important;
+  opacity: 1 !important;
+}
+
+.topbar .eyebrow,
+.panel .eyebrow,
+.quick-action .eyebrow,
+.journal-help .eyebrow {
+  color: #8390a4 !important;
+  opacity: 1 !important;
+}
+
+.safety-banner strong,
+.integration-next strong,
+.automation-state b {
+  color: #354052 !important;
+}
+
+.topbar-status .connection,
+.topbar-status .session-chip {
+  color: #268794 !important;
+}
+
+@media (max-width: 600px) {
+  .topbar h1 {
+    font-size: 25px;
+  }
+}
