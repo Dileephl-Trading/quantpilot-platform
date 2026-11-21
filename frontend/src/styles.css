@@ -66,3 +66,23 @@ body { background: var(--app-bg); color: var(--app-text); }
 .execution-page .status.partially_filled, .execution-page .status.open, .execution-page .status.pending { color: #f2ca82; border-color: #725d32; background: #332b1d; }
 .automation-state { color: #9fb2c7; font-size: 11px; margin-top: 7px; }.automation-state b { color: #f2ca82; letter-spacing: .04em; }
 @media (max-width: 760px) { .execution-page .field-grid { grid-template-columns: 1fr; } }
+
+/* Consistent interaction feedback for every actionable control. */
+button {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .16s ease, filter .16s ease, box-shadow .16s ease, background-color .16s ease, border-color .16s ease;
+}
+button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+button:active:not(:disabled),
+button.button-clicked:not(:disabled) {
+  transform: translateY(1px) scale(.985);
+  filter: brightness(.9);
+  box-shadow: 0 0 0 3px rgba(102, 169, 255, .16);
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: .58;
+}
