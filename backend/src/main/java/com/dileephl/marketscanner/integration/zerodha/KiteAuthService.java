@@ -124,6 +124,10 @@ public class KiteAuthService {
         return currentAccessToken.get();
     }
 
+    public void clearCurrentAccessToken() {
+        currentAccessToken.set(null);
+    }
+
     public boolean hasCurrentAccessToken() {
         String token = currentAccessToken.get();
         return token != null && !token.isBlank();
