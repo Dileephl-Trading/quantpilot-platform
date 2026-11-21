@@ -1,6 +1,7 @@
 package com.dileephl.marketscanner.integration.zerodha;
 
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -33,6 +34,7 @@ public class KiteAuthService {
     private final HttpClient httpClient;
     private final AtomicReference<String> currentAccessToken;
 
+    @Autowired
     public KiteAuthService(KiteConnectProperties properties,
                            KiteSessionTokenStore sessionTokenStore,
                            ObjectMapper objectMapper) {
