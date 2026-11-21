@@ -298,8 +298,6 @@ function App() {
           </div>}
         </div>
       </nav>
-n>⚙</span> Trading profile</button>
-      </nav>
       <div className="sidebar-footer">
         <div className="paper-chip"><span className="dot" /> PAPER MODE</div>
         <p>Your browser talks only to the local API.</p>
