@@ -191,6 +191,7 @@ public class BrokerOrderExecutionService {
     private void ensureProtectiveStop(ExecutionRequestEntity entry, BrokerOrderResponse entryResponse) {
         long filled = entryResponse.filledQuantity();
         if (filled <= 0 || entry.stopPrice() == null || entry.stopPrice().signum() <= 0) return;
+        if (entryResponse.side() == null) throw new IllegalStateException("Broker did not return the entry transaction side");
 
         ExecutionRequestEntity stop = requests.findByParentOrderId(entry.orderId()).stream().findFirst().orElse(null);
         OrderSide stopSide = entryResponse.side() == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
