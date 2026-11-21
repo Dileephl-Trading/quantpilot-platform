@@ -86,7 +86,6 @@ public class BrokerOrderExecutionService {
     @Transactional
     public java.util.List<BrokerOrderResponse> cancelTrackedOpenOrders() {
         requireLive();
-        reconcileUnknownBrokerOrders();
         java.util.List<BrokerOrderResponse> responses = new java.util.ArrayList<>();
         for (ExecutionRequestEntity request : requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED"))) {
             responses.add(cancel(request.orderId()));
@@ -112,6 +111,7 @@ public class BrokerOrderExecutionService {
     @Transactional
     public java.util.List<BrokerOrderResponse> reconcileTrackedOrders() {
         requireLive();
+        reconcileUnknownBrokerOrders();
         java.util.List<BrokerOrderResponse> responses = new java.util.ArrayList<>();
         for (ExecutionRequestEntity request : requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED"))) {
             responses.add(reconcile(request));
