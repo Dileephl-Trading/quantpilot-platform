@@ -30,7 +30,7 @@ server:
       cookie:
         http-only: ${SESSION_COOKIE_HTTP_ONLY:true}
         secure: ${SESSION_COOKIE_SECURE:false}
-        same-site: ${SESSION_COOKIE_SAME_SITE:strict}
+        same-site: ${SESSION_COOKIE_SAME_SITE:lax}
   address: ${SERVER_ADDRESS:127.0.0.1}
   port: ${SERVER_PORT:8080}
   error:
