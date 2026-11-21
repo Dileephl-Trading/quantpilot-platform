@@ -144,6 +144,17 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const hash = window.location.hash
+    if (!hash.startsWith('#integration')) return
+    setActive('integration')
+    const query = hash.includes('?') ? hash.substring(hash.indexOf('?') + 1) : ''
+    const result = new URLSearchParams(query).get('kite')
+    if (result === 'connected') setNotice({ tone: 'success', text: 'Kite connected. Today’s encrypted session is ready.' })
+    if (result === 'error') setNotice({ tone: 'error', text: 'Kite login could not be completed. Connect again from this screen.' })
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+  }, [])
+
+  useEffect(() => {
     if (!notice) return undefined
     const timer = window.setTimeout(() => setNotice(null), 2000)
     return () => window.clearTimeout(timer)
@@ -521,7 +532,8 @@ function KiteIntegration({ status, refresh, notify }) {
         <div className="integration-rows">
           <IntegrationRow label="API key" value={status?.apiKeyConfigured ? 'Configured locally' : 'Not configured'} ok={status?.apiKeyConfigured} />
           <IntegrationRow label="API secret" value={status?.apiSecretConfigured ? 'Configured locally' : 'Not configured'} ok={status?.apiSecretConfigured} />
-          <IntegrationRow label="Session token" value={status?.accessTokenConfigured ? 'Connected for current run' : 'Not connected for today'} ok={status?.accessTokenConfigured} />
+          <IntegrationRow label="Session token" value={status?.accessTokenConfigured ? 'Connected and encrypted locally' : 'Not connected for today'} ok={status?.accessTokenConfigured} />
+          {status?.sessionExpiresAt && <IntegrationRow label="Session expiry" value={new Date(status.sessionExpiresAt).toLocaleString()} ok={status.accessTokenConfigured} />}
           <IntegrationRow label="Live market data" value={status?.marketDataEnabled ? 'Explicitly enabled' : 'Disabled'} ok={status?.marketDataEnabled} />
         </div>
         <div className="integration-next"><span>Next step</span><strong>{status?.nextStep || 'Loading local connection state…'}</strong></div>
