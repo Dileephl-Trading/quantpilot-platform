@@ -258,8 +258,10 @@ function App() {
 
   return <div className="app-shell" onClick={handleButtonFeedback}>
     <aside className="sidebar">
-      <a className="brand" href="#overview" onClick={() => setActive('overview')}>
-        <span className="brand-mark">S</span      <p className="sidebar-label">WORKSPACE</p>
+      <a className="brand" href="#overview" onClick={() => { setActive('overview'); setOpenMenu(null) }}>
+        <span className="brand-mark">S</span><span>Signal<span>Desk</span></span>
+      </a>
+      <p className="sidebar-label">WORKSPACE</p>
       <nav>
         <button className={active === 'overview' ? 'nav-link active' : 'nav-link'} onClick={() => { setActive('overview'); setOpenMenu(null) }}><span>▦</span> Overview</button>
 
