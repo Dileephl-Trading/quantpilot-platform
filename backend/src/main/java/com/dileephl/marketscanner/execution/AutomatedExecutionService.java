@@ -51,7 +51,7 @@ public class AutomatedExecutionService {
         this.properties = properties; this.profiles = profiles; this.sessions = sessions;
         this.kiteProperties = kiteProperties; this.auth = auth; this.safety = safety;
         this.previews = previews; this.execution = execution; this.requests = requests;
-        this.safetyStates = safetyStates; this.audit = audit;
+        this.safetyStates = safetyStates; this.audit = audit; this.liveExecutionProperties = liveExecutionProperties;
     }
 
     public AutomatedStatus status() {
