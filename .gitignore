@@ -1,0 +1,10 @@
+target/
+backend/target/
+backend/data/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.env
+

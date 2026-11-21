@@ -1,0 +1,77 @@
+spring:
+  application:
+    name: market-signal-scanner
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/market_signal_scanner}
+    username: ${DATABASE_USERNAME:mss_app}
+    password: ${DATABASE_PASSWORD}
+    hikari:
+      pool-name: market-signal-scanner-pool
+      maximum-pool-size: ${DATABASE_MAX_POOL_SIZE:10}
+      minimum-idle: ${DATABASE_MIN_IDLE:2}
+      connection-timeout: 5000
+      validation-timeout: 2000
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: Asia/Kolkata
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-migration-naming: true
+
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+scanner:
+  live-execution-enabled: false
+  execution:
+    status-poll-ms: ${EXECUTION_STATUS_POLL_MS:5000}
+    enabled: ${AUTOMATED_EXECUTION_ENABLED:false}
+    max-signal-age-seconds: ${AUTOMATED_MAX_SIGNAL_AGE_SECONDS:60}
+    max-order-quantity: ${AUTOMATED_MAX_ORDER_QUANTITY:1}
+    order-type: ${AUTOMATED_ORDER_TYPE:LIMIT}
+  strategy:
+    enabled: ${SCANNER_STRATEGY_ENABLED:true}
+    candle-interval: ${SCANNER_CANDLE_INTERVAL:FIVE_MINUTE}
+    opening-range-candles: ${SCANNER_OPENING_RANGE_CANDLES:6}
+    volume-lookback: ${SCANNER_VOLUME_LOOKBACK:5}
+    volume-multiplier: ${SCANNER_VOLUME_MULTIPLIER:1.50}
+    minimum-candles: ${SCANNER_MINIMUM_CANDLES:12}
+    # Optional symbol groups, for example bank-nifty or it.
+    groups: {}
+  market-session:
+    zone-id: ${MARKET_SESSION_ZONE_ID:Asia/Kolkata}
+    open: ${MARKET_SESSION_OPEN:09:15}
+    close: ${MARKET_SESSION_CLOSE:15:30}
+    # Comma-separated ISO dates, for example: 2026-01-26,2026-03-04
+    holidays: ${MARKET_SESSION_HOLIDAYS:}
+  zerodha:
+    # Credentials are optional until a Kite Connect app has been created. Never put secrets in Git.
+    market-data-enabled: ${KITE_MARKET_DATA_ENABLED:false}
+    stale-tick-seconds: ${KITE_STALE_TICK_SECONDS:20}
+    reconnect-delay-seconds: ${KITE_RECONNECT_DELAY_SECONDS:3}
+    order-routing-enabled: ${KITE_ORDER_ROUTING_ENABLED:false}
+    api-key: ${KITE_API_KEY:}
+    api-secret: ${KITE_API_SECRET:}
+    redirect-url: ${KITE_REDIRECT_URL:http://127.0.0.1:8080/api/v1/integrations/zerodha/callback}
+    api-base-url: ${KITE_API_BASE_URL:https://api.kite.trade}
+    login-base-url: ${KITE_LOGIN_BASE_URL:https://kite.zerodha.com}
+    websocket-base-url: ${KITE_WEBSOCKET_BASE_URL:wss://ws.kite.trade}
