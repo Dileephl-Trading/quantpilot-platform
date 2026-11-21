@@ -51,7 +51,7 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
             response.setStatus(429);
             response.setHeader("Retry-After", "60");
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            response.getWriter().write("{\\"error\\":\\"rate_limit_exceeded\\",\\"message\\":\\"Too many API requests\\"}");
+            response.getWriter().write("{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many API requests\"}");
             return;
         }
 
