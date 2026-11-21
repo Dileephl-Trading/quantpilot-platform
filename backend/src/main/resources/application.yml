@@ -50,7 +50,7 @@ quantpilot:
   security:
     # Keep false only for local development. Set true behind HTTPS/VPN before deployment.
     enabled: ${QUANTPILOT_SECURITY_ENABLED:false}
-    allowed-origin: ${QUANTPILOT_ALLOWED_ORIGIN:http://127.0.0.1:8080}
+    allowed-origin: ${QUANTPILOT_ALLOWED_ORIGIN:http://localhost:8080}
     requests-per-minute: ${QUANTPILOT_API_RATE_LIMIT:120}
 
 scanner:
@@ -82,7 +82,7 @@ scanner:
     order-routing-enabled: ${KITE_ORDER_ROUTING_ENABLED:false}
     api-key: ${KITE_API_KEY:}
     api-secret: ${KITE_API_SECRET:}
-    redirect-url: ${KITE_REDIRECT_URL:http://127.0.0.1:8080/api/v1/integrations/zerodha/callback}
+    redirect-url: ${KITE_REDIRECT_URL:http://localhost:8080/api/v1/integrations/zerodha/callback}
     api-base-url: ${KITE_API_BASE_URL:https://api.kite.trade}
     login-base-url: ${KITE_LOGIN_BASE_URL:https://kite.zerodha.com}
     websocket-base-url: ${KITE_WEBSOCKET_BASE_URL:wss://ws.kite.trade}
