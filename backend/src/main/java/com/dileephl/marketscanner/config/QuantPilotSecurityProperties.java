@@ -7,12 +7,14 @@ public record QuantPilotSecurityProperties(
         boolean enabled,
         String username,
         String password,
+        String passwordHash,
         String allowedOrigin,
         int requestsPerMinute
 ) {
     public QuantPilotSecurityProperties {
         username = username == null ? "" : username.trim();
         password = password == null ? "" : password;
+        passwordHash = passwordHash == null ? "" : passwordHash.trim();
         allowedOrigin = allowedOrigin == null ? "http://127.0.0.1:8080" : allowedOrigin.trim();
         requestsPerMinute = requestsPerMinute > 0 ? requestsPerMinute : 120;
     }
