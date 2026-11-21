@@ -23,11 +23,8 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
     private final QuantPilotSecurityProperties properties;
-    private final ApiRateLimitFilter rateLimitFilter;
-
-    public SecurityConfig(QuantPilotSecurityProperties properties, ApiRateLimitFilter rateLimitFilter) {
+    public SecurityConfig(QuantPilotSecurityProperties properties) {
         this.properties = properties;
-        this.rateLimitFilter = rateLimitFilter;
     }
 
     @Bean
@@ -39,7 +36,7 @@ public class SecurityConfig {
                         .frameOptions(frame -> frame.deny())
                         .contentSecurityPolicy(csp -> csp.policyDirectives(
                                 "default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'")))
-                .addFilterBefore(rateLimitFilter, BasicAuthenticationFilter.class);
+                .addFilterBefore(new ApiRateLimitFilter(properties), BasicAuthenticationFilter.class);
 
         if (!properties.enabled()) {
             http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
