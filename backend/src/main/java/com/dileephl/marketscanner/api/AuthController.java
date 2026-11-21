@@ -3,6 +3,7 @@ package com.dileephl.marketscanner.api;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import com.dileephl.marketscanner.config.QuantPilotSecurityProperties;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,11 +24,14 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
+    private final QuantPilotSecurityProperties securityProperties;
 
     public AuthController(AuthenticationManager authenticationManager,
-                          SecurityContextRepository securityContextRepository) {
+                          SecurityContextRepository securityContextRepository,
+                          QuantPilotSecurityProperties securityProperties) {
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
+        this.securityProperties = securityProperties;
     }
 
     @PostMapping("/login")
@@ -54,6 +58,9 @@ public class AuthController {
 
     @GetMapping("/me")
     public ResponseEntity<AuthView> me(Authentication authentication) {
+        if (!securityProperties.enabled()) {
+            return ResponseEntity.ok(AuthView.authenticated("local"));
+        }
         if (authentication == null || !authentication.isAuthenticated()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
