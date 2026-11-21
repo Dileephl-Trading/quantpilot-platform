@@ -20,11 +20,13 @@ public class BrokerOrderExecutionService {
     private final ExecutionOrderEventRepository events;
     private final AuditTrailService audit;
     private final LiveExecutionProperties liveExecutionProperties;
+    private final AutomationSafetyStateRepository safetyStates;
 
     public BrokerOrderExecutionService(TradingProfileService profiles, ExecutionPreviewService previews, KiteOrderExecutionProvider provider, SafetyService safety,
                                        ExecutionRequestRepository requests, ExecutionOrderEventRepository events, AuditTrailService audit,
-                                       LiveExecutionProperties liveExecutionProperties) {
-        this.profiles = profiles; this.previews = previews; this.provider = provider; this.safety = safety; this.requests = requests; this.events = events; this.audit = audit; this.liveExecutionProperties = liveExecutionProperties;
+                                       LiveExecutionProperties liveExecutionProperties,
+                                       AutomationSafetyStateRepository safetyStates) {
+        this.profiles = profiles; this.previews = previews; this.provider = provider; this.safety = safety; this.requests = requests; this.events = events; this.audit = audit; this.liveExecutionProperties = liveExecutionProperties; this.safetyStates = safetyStates;
     }
 
     @Transactional
@@ -84,6 +86,7 @@ public class BrokerOrderExecutionService {
     @Transactional
     public java.util.List<BrokerOrderResponse> cancelTrackedOpenOrders() {
         requireLive();
+        reconcileUnknownBrokerOrders();
         java.util.List<BrokerOrderResponse> responses = new java.util.ArrayList<>();
         for (ExecutionRequestEntity request : requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED"))) {
             responses.add(cancel(request.orderId()));
@@ -181,6 +184,22 @@ public class BrokerOrderExecutionService {
             ensureProtectiveStop(request, persisted);
         }
         return persisted;
+    }
+
+    private void reconcileUnknownBrokerOrders() {
+        for (BrokerOrderResponse brokerOrder : provider.listOrders()) {
+            if (brokerOrder.orderId() == null || requests.findByOrderId(brokerOrder.orderId()).isPresent()) continue;
+            if (List.of(BrokerOrderStatus.PENDING, BrokerOrderStatus.OPEN, BrokerOrderStatus.PARTIALLY_FILLED)
+                    .contains(brokerOrder.status())) {
+                AutomationSafetyStateEntity state = safetyStates.findById(1)
+                        .orElseGet(() -> AutomationSafetyStateEntity.initial());
+                state.markUncertain("Unknown open broker order detected: " + brokerOrder.orderId());
+                safetyStates.save(state);
+                audit.record("UNKNOWN_BROKER_ORDER", "AUTOMATION_SAFETY", "GLOBAL",
+                        "orderId=" + brokerOrder.orderId() + ", status=" + brokerOrder.status());
+                throw new IllegalStateException("Unknown open broker order detected; manual reconciliation is required");
+            }
+        }
     }
 
     /**
