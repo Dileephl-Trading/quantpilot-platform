@@ -1096,3 +1096,10 @@ button {
 .market-tab.active { color: #087e93; background: #e6ebf4; box-shadow: 4px 4px 9px rgba(163, 174, 194, .38), -4px -4px 9px rgba(255,255,255,.9); }
 .market-section { display: none; }
 .market-section.active { display: block; }
+
+/* Collapsible navigation groups */
+.nav-group { gap: 3px; }
+.nav-parent { width: 100%; white-space: nowrap; display: flex; align-items: center; }
+.nav-parent > span:nth-child(2) { width: auto !important; flex: 1; text-align: left; white-space: nowrap; }
+.nav-parent > span.nav-chevron { width: auto !important; flex: 0 0 auto; margin-left: auto; }
+.subnav { margin-left: 22px; }
