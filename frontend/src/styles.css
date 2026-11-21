@@ -897,3 +897,187 @@ button {
     font-size: 25px;
   }
 }
+
+
+/* In-app session login */
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: var(--neo-bg) !important;
+  color: var(--neo-text) !important;
+}
+
+.login-card {
+  width: min(430px, 100%);
+  padding: 38px 36px 28px;
+  border-radius: 28px;
+  background: var(--neo-surface) !important;
+  border: 1px solid var(--neo-border) !important;
+  box-shadow: var(--neo-raised) !important;
+}
+
+.login-loading {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.login-loading p {
+  margin: 0;
+  color: var(--neo-muted);
+  font-weight: 650;
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 42px;
+}
+
+.login-brand strong {
+  display: block;
+  color: var(--neo-text-strong);
+  font-size: 23px;
+  letter-spacing: -.04em;
+}
+
+.login-brand strong span {
+  color: var(--neo-accent-dark);
+}
+
+.login-brand small {
+  display: block;
+  margin-top: 4px;
+  color: var(--neo-subtle);
+  font: 700 9px 'DM Mono', monospace;
+  letter-spacing: .12em;
+}
+
+.login-copy h1 {
+  margin: 7px 0 8px;
+  color: var(--neo-text-strong) !important;
+  font-size: 31px;
+  letter-spacing: -.045em;
+}
+
+.login-copy > p:not(.eyebrow) {
+  margin: 0 0 28px;
+  color: var(--neo-muted) !important;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.login-form {
+  display: grid;
+  gap: 16px;
+}
+
+.login-form label {
+  display: grid;
+  gap: 7px;
+  color: #6d7a8e;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.login-form input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 45px;
+  padding: 11px 13px;
+  border-radius: 13px;
+  border: 1px solid var(--neo-border);
+  background: var(--neo-bg);
+  color: var(--neo-text);
+  box-shadow: var(--neo-inset);
+  outline: none;
+}
+
+.login-form input:focus {
+  border-color: rgba(47, 166, 181, .6);
+  box-shadow: var(--neo-inset), 0 0 0 3px rgba(47, 166, 181, .13);
+}
+
+.login-form .full {
+  min-height: 48px;
+  margin-top: 6px;
+  border-radius: 14px;
+}
+
+.login-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  color: #a94f5b;
+  background: #f8e4e5;
+  border: 1px solid rgba(211, 108, 117, .28);
+  box-shadow: var(--neo-inset);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.login-error span {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--neo-negative);
+  font-weight: 800;
+}
+
+.login-footnote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 25px;
+  color: var(--neo-subtle);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.login-footnote .status-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+}
+
+.logout-button {
+  width: 100%;
+  margin-top: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--neo-border);
+  border-radius: 11px;
+  color: var(--neo-accent-dark);
+  background: var(--neo-surface);
+  box-shadow: var(--neo-raised-small);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.logout-button:active,
+.logout-button.button-clicked {
+  box-shadow: var(--neo-inset);
+}
+
+@media (max-width: 600px) {
+  .login-shell {
+    padding: 18px;
+  }
+
+  .login-card {
+    padding: 30px 24px 23px;
+    border-radius: 23px;
+  }
+
+  .login-brand {
+    margin-bottom: 32px;
+  }
+}
