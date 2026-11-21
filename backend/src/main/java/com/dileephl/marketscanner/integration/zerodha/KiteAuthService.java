@@ -14,23 +14,33 @@ import java.net.http.HttpResponse;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Handles Kite's daily OAuth-style login. The access token is encrypted at rest in PostgreSQL
+ * and kept in memory for request use; it is never returned to the frontend.
+ */
 @Service
 public class KiteAuthService {
+    private static final ZoneId INDIA_ZONE = ZoneId.of("Asia/Kolkata");
     private final KiteConnectProperties properties;
+    private final KiteSessionTokenStore sessionTokenStore;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
-    /**
-     * Access tokens expire before the next market session. Keeping a token only in memory means
-     * it cannot be recovered from the database or accidentally included in a backup.
-     */
-    private final AtomicReference<String> currentAccessToken = new AtomicReference<>();
+    private final AtomicReference<String> currentAccessToken;
 
-    public KiteAuthService(KiteConnectProperties properties, ObjectMapper objectMapper) {
+    public KiteAuthService(KiteConnectProperties properties,
+                           KiteSessionTokenStore sessionTokenStore,
+                           ObjectMapper objectMapper) {
         this.properties = properties;
+        this.sessionTokenStore = sessionTokenStore;
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        this.currentAccessToken = new AtomicReference<>(sessionTokenStore.loadValid().orElse(null));
     }
 
     public KiteIntegrationStatus status() {
@@ -54,7 +64,8 @@ public class KiteAuthService {
         }
         return new KiteIntegrationStatus("ZERODHA_KITE", state, properties.isMarketDataEnabled(),
                 properties.hasApiKey(), properties.hasApiSecret(), hasCurrentAccessToken(),
-                properties.getRedirectUrl(), properties.isOrderRoutingEnabled() ? "CONFIGURED_BUT_GATED" : "DISABLED", nextStep);
+                properties.getRedirectUrl(), properties.isOrderRoutingEnabled() ? "CONFIGURED_BUT_GATED" : "DISABLED",
+                nextStep, sessionTokenStore.expiry().filter(value -> value.isAfter(Instant.now())).map(Instant::toString).orElse(null));
     }
 
     public String loginUrl() {
@@ -84,10 +95,7 @@ public class KiteAuthService {
         }
     }
 
-    /**
-     * Exchanges Kite's single-use request token for today's access token. Neither token is
-     * returned to the caller or written to the database/logs.
-     */
+    /** Exchanges Kite's single-use request token and persists today's encrypted access token. */
     public void completeLogin(String requestToken) {
         require(properties.hasApiKey() && properties.hasApiSecret(), "Kite API key and secret are required");
         require(requestToken != null && !requestToken.isBlank(), "Kite did not return a request token");
@@ -110,6 +118,8 @@ public class KiteAuthService {
             JsonNode root = objectMapper.readTree(response.body());
             String accessToken = root.path("data").path("access_token").asText();
             if (accessToken.isBlank()) throw new IllegalStateException("Kite session exchange did not return an access token");
+            Instant expiresAt = nextKiteExpiry();
+            sessionTokenStore.save(accessToken, expiresAt);
             currentAccessToken.set(accessToken);
         } catch (java.io.IOException error) {
             throw new IllegalStateException("Unable to complete Kite login", error);
@@ -126,11 +136,19 @@ public class KiteAuthService {
 
     public void clearCurrentAccessToken() {
         currentAccessToken.set(null);
+        sessionTokenStore.clear();
     }
 
     public boolean hasCurrentAccessToken() {
         String token = currentAccessToken.get();
         return token != null && !token.isBlank();
+    }
+
+    private Instant nextKiteExpiry() {
+        ZonedDateTime now = ZonedDateTime.now(INDIA_ZONE);
+        ZonedDateTime expiry = now.with(LocalTime.of(6, 0));
+        if (!now.isBefore(expiry)) expiry = expiry.plusDays(1);
+        return expiry.toInstant();
     }
 
     private String formValue(String value) {
