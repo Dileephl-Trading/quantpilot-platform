@@ -624,3 +624,175 @@ tbody tr:hover {
     box-shadow: var(--neo-raised-small) !important;
   }
 }
+
+
+/* Reference-matched typography and text contrast */
+:root {
+  --neo-text: #303847;
+  --neo-text-strong: #202a3a;
+  --neo-muted: #748095;
+  --neo-subtle: #9aa4b3;
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  letter-spacing: -0.01em;
+}
+
+body {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.brand h1,
+.topbar h2,
+.journal-page h1,
+.execution-page h1,
+.audit-page h1 {
+  color: #202a3a !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.035em;
+}
+
+.panel-heading h3,
+.panel-heading h4,
+.metric-card strong,
+.quick-action strong,
+.decision-title,
+.integration-card h3,
+.contract-card h3,
+.verification-card h3,
+.live-card h3,
+.candle-panel h3,
+.symbol-workspace h3 {
+  color: #2c3545 !important;
+  font-weight: 750 !important;
+  letter-spacing: -0.025em;
+}
+
+.eyebrow,
+.sidebar-label {
+  color: #8290a4 !important;
+  font-weight: 750 !important;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.brand p,
+.panel-heading p,
+.panel > p,
+.quick-action p,
+.decision p,
+.integration-card p,
+.contract-card p,
+.verification-card p,
+.live-card p,
+.candle-panel p,
+.journal-help,
+.watchlist-note,
+.empty,
+.muted,
+.topbar small,
+.metric-card p,
+.result-stat span,
+.execution-note,
+.table-panel p {
+  color: #7b8799 !important;
+}
+
+.nav-link {
+  color: #69778c !important;
+  font-weight: 650 !important;
+}
+
+.nav-link:hover,
+.nav-link.active {
+  color: #1f8795 !important;
+}
+
+.field label,
+.date-field label,
+.symbol-search label,
+.scanner-config-form label {
+  color: #6d7a8e !important;
+  font-weight: 650 !important;
+}
+
+.field input,
+.field select,
+.field textarea,
+.date-field input,
+.symbol-search input,
+.scanner-config-form input,
+.scanner-config-form select {
+  color: #303847 !important;
+  font-weight: 600;
+}
+
+.field input::placeholder,
+.field textarea::placeholder,
+.symbol-search input::placeholder {
+  color: #a1aab8 !important;
+}
+
+th {
+  color: #8490a2 !important;
+  font-weight: 750 !important;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+td {
+  color: #3b4658 !important;
+  font-weight: 600;
+}
+
+.metric-card strong {
+  color: #263246 !important;
+}
+
+.result-stat strong,
+.calculated-risk strong {
+  color: #273349 !important;
+}
+
+.login-url code {
+  color: #247f8d !important;
+  font-weight: 700;
+}
+
+.notice.success,
+.notice.error,
+.notice.success *,
+.notice.error * {
+  font-weight: 650;
+}
+
+button {
+  letter-spacing: 0;
+}
+
+.primary,
+.save,
+.full,
+.buy,
+.sell,
+.danger-button {
+  font-weight: 800 !important;
+  letter-spacing: .01em;
+}
+
+@media (max-width: 600px) {
+  body {
+    font-size: 13px;
+  }
+
+  .brand h1,
+  .topbar h2 {
+    letter-spacing: -0.025em;
+  }
+}
