@@ -59,6 +59,7 @@ function App() {
   const [preview, setPreview] = useState(null)
   const [active, setActive] = useState('overview')
   const [marketSection, setMarketSection] = useState('connection')
+  const [openMenu, setOpenMenu] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -258,25 +259,44 @@ function App() {
   return <div className="app-shell" onClick={handleButtonFeedback}>
     <aside className="sidebar">
       <a className="brand" href="#overview" onClick={() => setActive('overview')}>
-        <span className="brand-mark">S</span><span>Signal<span>Desk</span></span>
-      </a>
-      <p className="sidebar-label">WORKSPACE</p>
+        <span className="brand-mark">S</span      <p className="sidebar-label">WORKSPACE</p>
       <nav>
-        <button className={active === 'overview' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('overview')}><span>▦</span> Overview</button>
-        <button className={active === 'risk' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('risk')}><span>◈</span> Risk preview</button>
-        <button className={active === 'execution' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('execution')}><span>⇄</span> Execution</button>
-        <button className={active === 'audit' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('audit')}><span>▥</span> Audit log</button>
-        <button className={active === 'journal' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('journal')}><span>▤</span> Trade journal</button>
+        <button className={active === 'overview' ? 'nav-link active' : 'nav-link'} onClick={() => { setActive('overview'); setOpenMenu(null) }}><span>▦</span> Overview</button>
+
         <div className="nav-group">
-          <button className={active === 'integration' ? 'nav-link active nav-parent' : 'nav-link nav-parent'} onClick={() => { setActive('integration'); setMarketSection('connection') }}><span>◌</span><span>Market data</span><span className="nav-chevron">{active === 'integration' ? '⌃' : '⌄'}</span></button>
-          {active === 'integration' && <div className="subnav">
-            <button className={marketSection === 'connection' ? 'subnav-link active' : 'subnav-link'} onClick={() => setMarketSection('connection')}>Connection</button>
-            <button className={marketSection === 'symbols' ? 'subnav-link active' : 'subnav-link'} onClick={() => setMarketSection('symbols')}>Symbols & candles</button>
-            <button className={marketSection === 'monitor' ? 'subnav-link active' : 'subnav-link'} onClick={() => setMarketSection('monitor')}>Live monitor</button>
-            <button className={marketSection === 'strategy' ? 'subnav-link active' : 'subnav-link'} onClick={() => setMarketSection('strategy')}>Scanner rules</button>
+          <button className={openMenu === 'trading' ? 'nav-link active nav-parent' : 'nav-link nav-parent'} onClick={() => setOpenMenu(current => current === 'trading' ? null : 'trading')}><span>⇄</span><span>Trading</span><span className="nav-chevron">{openMenu === 'trading' ? '⌃' : '⌄'}</span></button>
+          {openMenu === 'trading' && <div className="subnav">
+            <button className={active === 'risk' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('risk'); setOpenMenu('trading') }}>Risk preview</button>
+            <button className={active === 'execution' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('execution'); setOpenMenu('trading') }}>Execution</button>
           </div>}
         </div>
-        <button className={active === 'settings' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('settings')}><span>⚙</span> Trading profile</button>
+
+        <div className="nav-group">
+          <button className={openMenu === 'records' ? 'nav-link active nav-parent' : 'nav-link nav-parent'} onClick={() => setOpenMenu(current => current === 'records' ? null : 'records')}><span>▤</span><span>Records</span><span className="nav-chevron">{openMenu === 'records' ? '⌃' : '⌄'}</span></button>
+          {openMenu === 'records' && <div className="subnav">
+            <button className={active === 'audit' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('audit'); setOpenMenu('records') }}>Audit log</button>
+            <button className={active === 'journal' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('journal'); setOpenMenu('records') }}>Trade journal</button>
+          </div>}
+        </div>
+
+        <div className="nav-group">
+          <button className={openMenu === 'market-data' ? 'nav-link active nav-parent' : 'nav-link nav-parent'} onClick={() => setOpenMenu(current => current === 'market-data' ? null : 'market-data')}><span>◌</span><span>Market data</span><span className="nav-chevron">{openMenu === 'market-data' ? '⌃' : '⌄'}</span></button>
+          {openMenu === 'market-data' && <div className="subnav">
+            <button className={active === 'integration' && marketSection === 'connection' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('integration'); setMarketSection('connection'); setOpenMenu('market-data') }}>Connection</button>
+            <button className={active === 'integration' && marketSection === 'symbols' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('integration'); setMarketSection('symbols'); setOpenMenu('market-data') }}>Symbols & candles</button>
+            <button className={active === 'integration' && marketSection === 'monitor' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('integration'); setMarketSection('monitor'); setOpenMenu('market-data') }}>Live monitor</button>
+            <button className={active === 'integration' && marketSection === 'strategy' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('integration'); setMarketSection('strategy'); setOpenMenu('market-data') }}>Scanner rules</button>
+          </div>}
+        </div>
+
+        <div className="nav-group">
+          <button className={openMenu === 'configuration' ? 'nav-link active nav-parent' : 'nav-link nav-parent'} onClick={() => setOpenMenu(current => current === 'configuration' ? null : 'configuration')}><span>⚙</span><span>Configuration</span><span className="nav-chevron">{openMenu === 'configuration' ? '⌃' : '⌄'}</span></button>
+          {openMenu === 'configuration' && <div className="subnav">
+            <button className={active === 'settings' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('settings'); setOpenMenu('configuration') }}>Trading profile</button>
+          </div>}
+        </div>
+      </nav>
+n>⚙</span> Trading profile</button>
       </nav>
       <div className="sidebar-footer">
         <div className="paper-chip"><span className="dot" /> PAPER MODE</div>
