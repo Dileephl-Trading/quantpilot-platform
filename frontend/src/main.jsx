@@ -69,6 +69,22 @@ function App() {
 
   useEffect(() => { loadProfile() }, [])
 
+  useEffect(() => {
+    if (!notice) return undefined
+    const timer = window.setTimeout(() => setNotice(null), 2000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
+  function handleButtonFeedback(event) {
+    const button = event.target?.closest?.('button')
+    if (!button || button.disabled) return
+    button.classList.remove('button-clicked')
+    window.requestAnimationFrame(() => {
+      button.classList.add('button-clicked')
+      window.setTimeout(() => button.classList.remove('button-clicked'), 240)
+    })
+  }
+
   async function loadKiteStatus() {
     try {
       setKiteStatus(await request('/api/v1/integrations/zerodha/status'))
@@ -146,7 +162,7 @@ function App() {
 
   useEffect(() => { if (active === 'execution') refreshExecution() }, [active])
 
-  return <div className="app-shell">
+  return <div className="app-shell" onClick={handleButtonFeedback}>
     <aside className="sidebar">
       <a className="brand" href="#overview" onClick={() => setActive('overview')}>
         <span className="brand-mark">S</span><span>Signal<span>Desk</span></span>
