@@ -1081,3 +1081,18 @@ button {
     margin-bottom: 32px;
   }
 }
+
+/* Market-data navigation */
+.nav-group { display: flex; flex-direction: column; gap: 6px; }
+.nav-parent { width: 100%; }
+.nav-parent > span:nth-child(2) { flex: 1; text-align: left; }
+.nav-chevron { margin-left: auto; font-size: 12px; opacity: .7; }
+.subnav { display: flex; flex-direction: column; gap: 4px; margin: 0 0 8px 34px; padding-left: 12px; border-left: 1px solid rgba(111, 128, 156, .28); }
+.subnav-link { border: 0; background: transparent; color: #72809c; text-align: left; padding: 8px 10px; border-radius: 10px; font: inherit; font-size: 12px; cursor: pointer; transition: .18s ease; }
+.subnav-link:hover, .subnav-link.active { color: #078fa5; background: rgba(255,255,255,.62); box-shadow: 3px 3px 8px rgba(157, 169, 190, .25), -3px -3px 8px rgba(255,255,255,.75); }
+.market-data-tabs { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 18px; padding: 8px; border-radius: 16px; background: rgba(225, 231, 242, .72); box-shadow: inset 2px 2px 6px rgba(163, 174, 194, .25), inset -2px -2px 6px rgba(255,255,255,.75); }
+.market-tab { border: 0; padding: 10px 16px; border-radius: 11px; background: transparent; color: #71809a; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; transition: .18s ease; }
+.market-tab:hover { color: #078fa5; }
+.market-tab.active { color: #087e93; background: #e6ebf4; box-shadow: 4px 4px 9px rgba(163, 174, 194, .38), -4px -4px 9px rgba(255,255,255,.9); }
+.market-section { display: none; }
+.market-section.active { display: block; }
