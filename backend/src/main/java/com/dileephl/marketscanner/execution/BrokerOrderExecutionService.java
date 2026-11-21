@@ -174,7 +174,53 @@ public class BrokerOrderExecutionService {
     @Transactional
     BrokerOrderResponse reconcile(ExecutionRequestEntity request) {
         BrokerOrderResponse response = provider.status(request.orderId());
-        return persist(response, "BROKER_ORDER_STATUS_POLLED");
+        BrokerOrderResponse persisted = persist(response, "BROKER_ORDER_STATUS_POLLED");
+        if (!request.protective()
+                && (persisted.status() == BrokerOrderStatus.PARTIALLY_FILLED
+                    || persisted.status() == BrokerOrderStatus.COMPLETE)) {
+            ensureProtectiveStop(request, persisted);
+        }
+        return persisted;
+    }
+
+    /**
+     * Creates one broker-side stop-market order for the filled quantity and increases its
+     * quantity when an entry order receives additional fills. A missing/rejected stop is
+     * treated as an uncertain broker state by the reconciliation scheduler.
+     */
+    private void ensureProtectiveStop(ExecutionRequestEntity entry, BrokerOrderResponse entryResponse) {
+        long filled = entryResponse.filledQuantity();
+        if (filled <= 0 || entry.stopPrice() == null || entry.stopPrice().signum() <= 0) return;
+
+        ExecutionRequestEntity stop = requests.findByParentOrderId(entry.orderId()).stream().findFirst().orElse(null);
+        OrderSide stopSide = entryResponse.side() == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
+        BrokerOrderRequest stopRequest = new BrokerOrderRequest(
+                entry.symbol(), stopSide, filled, "SL-M", null, entry.stopPrice(),
+                entry.product(), entry.exchange(), entry.validity(), entry.stopPrice());
+
+        if (stop == null) {
+            BrokerOrderResponse response = provider.place(stopRequest);
+            ExecutionRequestEntity tracked = ExecutionRequestEntity.from(
+                    entry.orderId() + ":STOP", stopRequest, response, entry.orderId(), true);
+            requests.save(tracked);
+            events.save(ExecutionOrderEventEntity.from(response));
+            audit.record("PROTECTIVE_STOP_SUBMITTED", "BROKER_ORDER", response.orderId(),
+                    "parentOrderId=" + entry.orderId() + ", quantity=" + filled
+                            + ", triggerPrice=" + entry.stopPrice());
+            return;
+        }
+
+        if (stop.status().equals("OPEN") || stop.status().equals("PENDING")
+                || stop.status().equals("PARTIALLY_FILLED")) {
+            if (stop.quantity() < filled) {
+                BrokerOrderResponse response = provider.modify(stop.orderId(), stopRequest);
+                persist(response, "PROTECTIVE_STOP_MODIFIED");
+            }
+            return;
+        }
+
+        if (stop.status().equals("COMPLETE") && entryResponse.filledQuantity() <= stop.quantity()) return;
+        throw new IllegalStateException("Protective stop is not active for filled entry " + entry.orderId());
     }
 
     private BrokerOrderResponse persist(BrokerOrderResponse response, String eventType) {
