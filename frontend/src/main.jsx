@@ -58,6 +58,7 @@ function App() {
   const [order, setOrder] = useState(initialOrder)
   const [preview, setPreview] = useState(null)
   const [active, setActive] = useState('overview')
+  const [marketSection, setMarketSection] = useState('connection')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -266,7 +267,15 @@ function App() {
         <button className={active === 'execution' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('execution')}><span>⇄</span> Execution</button>
         <button className={active === 'audit' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('audit')}><span>▥</span> Audit log</button>
         <button className={active === 'journal' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('journal')}><span>▤</span> Trade journal</button>
-        <button className={active === 'integration' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('integration')}><span>◌</span> Market data</button>
+        <div className="nav-group">
+          <button className={active === 'integration' ? 'nav-link active nav-parent' : 'nav-link nav-parent'} onClick={() => { setActive('integration'); setMarketSection('connection') }}><span>◌</span><span>Market data</span><span className="nav-chevron">{active === 'integration' ? '⌃' : '⌄'}</span></button>
+          {active === 'integration' && <div className="subnav">
+            <button className={marketSection === 'connection' ? 'subnav-link active' : 'subnav-link'} onClick={() => setMarketSection('connection')}>Connection</button>
+            <button className={marketSection === 'symbols' ? 'subnav-link active' : 'subnav-link'} onClick={() => setMarketSection('symbols')}>Symbols & candles</button>
+            <button className={marketSection === 'monitor' ? 'subnav-link active' : 'subnav-link'} onClick={() => setMarketSection('monitor')}>Live monitor</button>
+            <button className={marketSection === 'strategy' ? 'subnav-link active' : 'subnav-link'} onClick={() => setMarketSection('strategy')}>Scanner rules</button>
+          </div>}
+        </div>
         <button className={active === 'settings' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('settings')}><span>⚙</span> Trading profile</button>
       </nav>
       <div className="sidebar-footer">
@@ -344,7 +353,7 @@ function App() {
 
         {active === 'journal' && <Journal notify={setNotice} />}
 
-        {active === 'integration' && <KiteIntegration status={kiteStatus} refresh={loadKiteStatus} notify={setNotice} />}
+        {active === 'integration' && <KiteIntegration status={kiteStatus} refresh={loadKiteStatus} notify={setNotice} section={marketSection} setSection={setMarketSection} />}
 
         {active === 'settings' && draft && <form className="panel settings-panel" onSubmit={saveProfile}>
           <div className="panel-heading"><div><p className="eyebrow">LOCAL CONFIGURATION</p><h2>Paper-trading guardrails</h2><p>These limits are stored in your local PostgreSQL database.</p></div><span className="badge">PAPER / DRY-RUN only</span></div>
@@ -455,7 +464,7 @@ function ExecutionConsole({ profile, status, form, change, orders, busy, setBusy
   </section>
 }
 
-function KiteIntegration({ status, refresh, notify }) {
+function KiteIntegration({ status, refresh, notify, section, setSection }) {
   const [loadingUrl, setLoadingUrl] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState(null)
@@ -526,6 +535,14 @@ function KiteIntegration({ status, refresh, notify }) {
   const configured = status?.state === 'READY_FOR_MARKET_DATA'
   return <section className="integration-page">
     <section className="safety-banner"><div className="safety-icon">◌</div><div><strong>Market data and broker routing are separately gated.</strong><p>Order placement, modification, and cancellation are available only from the Execution screen after every explicit safety gate passes.</p></div></section>
+    <div className="market-data-tabs" role="tablist" aria-label="Market data sections">
+      <button className={section === 'connection' ? 'market-tab active' : 'market-tab'} onClick={() => setSection('connection')}>Connection</button>
+      <button className={section === 'symbols' ? 'market-tab active' : 'market-tab'} onClick={() => setSection('symbols')}>Symbols & candles</button>
+      <button className={section === 'monitor' ? 'market-tab active' : 'market-tab'} onClick={() => setSection('monitor')}>Live monitor</button>
+      <button className={section === 'strategy' ? 'market-tab active' : 'market-tab'} onClick={() => setSection('strategy')}>Scanner rules</button>
+    </div>
+
+    <div className={section === 'connection' ? 'market-section active' : 'market-section'}>
     <div className="integration-grid">
       <section className="panel integration-card">
         <div className="panel-heading"><div><p className="eyebrow">ZERODHA KITE CONNECT</p><h2>{status?.state?.replaceAll('_', ' ') || 'Checking configuration'}</h2></div><span className={`badge ${configured ? 'green' : 'blue'}`}>{status?.executionState || 'DISABLED'}</span></div>
@@ -541,6 +558,8 @@ function KiteIntegration({ status, refresh, notify }) {
       </section>
       <aside className="panel journal-help"><p className="eyebrow">SAFE ACTIVATION PATH</p><h2>What happens after purchase</h2><ol><li>Add credentials only to your uncommitted local <b>.env</b> file.</li><li>Use Kite login to create that day’s session token.</li><li>Verify instrument import and a historical-candle request.</li><li>Enable live WebSocket data only after both tests pass.</li></ol><p>API secret and access token never appear in this page or in browser storage.</p></aside>
     </div>
+    </div>
+    <div className={section === 'symbols' ? 'market-section active' : 'market-section'}>
     <section className="panel verification-card">
       <div className="panel-heading"><div><p className="eyebrow">READ-ONLY DATA VERIFICATION</p><h2>Sync symbols and inspect completed candles</h2><p>Only NSE cash equities are stored locally in this phase. No order can be created from this screen.</p></div><span className={`badge ${marketDataReady ? 'green' : 'blue'}`}>{marketDataReady ? 'Ready to verify' : 'Data disabled'}</span></div>
       {!marketDataReady && <p className="verification-warning">Enable <code>KITE_MARKET_DATA_ENABLED=true</code> in your local <code>.env</code>, restart, then connect Kite again before using these controls.</p>}
@@ -552,9 +571,14 @@ function KiteIntegration({ status, refresh, notify }) {
       {selected && <div className="historical-check"><div><p className="eyebrow">HISTORICAL CHECK</p><strong>{selected.tradingsymbol}</strong><span> · 5-minute completed candles</span></div><label className="date-field">Trading date<input type="date" value={tradeDate} onChange={event => setTradeDate(event.target.value)} /></label><button className="primary" onClick={verifyHistorical} disabled={verifying}>{verifying ? 'Fetching…' : 'Fetch and evaluate'}</button></div>}
       {verification && <div className="verification-result"><div><span>Completed candles</span><strong>{verification.count}</strong></div><div><span>Scanner result</span><strong>{verification.signal.type}</strong></div><div><span>Reference price</span><strong>{money(verification.signal.referencePrice)}</strong></div><p>{verification.signal.reasons?.join(' · ')}</p></div>}
     </section>
+    </div>
+    <div className={section === 'monitor' ? 'market-section active' : 'market-section'}>
     <LiveStream selected={selected} marketDataReady={marketDataReady} notify={notify} />
+    </div>
+    <div className={section === 'strategy' ? 'market-section active' : 'market-section'}>
     <ScannerSettings marketDataReady={marketDataReady} notify={notify} />
-    <section className="panel contract-card"><p className="eyebrow">IMPLEMENTED CONTRACTS</p><h2>Ready for credential-backed verification</h2><div className="contract-grid"><div><strong>GET /instruments</strong><span>Downloads the published instrument CSV.</span></div><div><strong>GET /instruments/historical/:token/:interval</strong><span>Retrieves historical candles into provider-neutral candle objects.</span></div><div><strong>Kite OAuth session flow</strong><span>Builds the login URL and SHA-256 session checksum.</span></div></div></section>
+    </div>
+    <div className="market-section active"><p className="eyebrow">IMPLEMENTED CONTRACTS</p><h2>Ready for credential-backed verification</h2><div className="contract-grid"><div><strong>GET /instruments</strong><span>Downloads the published instrument CSV.</span></div><div><strong>GET /instruments/historical/:token/:interval</strong><span>Retrieves historical candles into provider-neutral candle objects.</span></div><div><strong>Kite OAuth session flow</strong><span>Builds the login URL and SHA-256 session checksum.</span></div></div></section>
   </section>
 }
 
