@@ -2,7 +2,8 @@ package com.dileephl.marketscanner.api;
 
 import com.dileephl.marketscanner.integration.zerodha.KiteAuthService;
 import com.dileephl.marketscanner.integration.zerodha.KiteIntegrationStatus;
-import jakarta.servlet.http.HttpServletRequest;
+import com.dileephl.marketscanner.integration.zerodha.KiteConnectProperties;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,9 +18,11 @@ import java.util.Map;
 @RequestMapping("/api/v1/integrations/zerodha")
 public class KiteIntegrationController {
     private final KiteAuthService kiteAuthService;
+    private final KiteConnectProperties properties;
 
-    public KiteIntegrationController(KiteAuthService kiteAuthService) {
+    public KiteIntegrationController(KiteAuthService kiteAuthService, KiteConnectProperties properties) {
         this.kiteAuthService = kiteAuthService;
+        this.properties = properties;
     }
 
     @GetMapping("/status")
@@ -38,8 +41,7 @@ public class KiteIntegrationController {
      */
     @GetMapping("/callback")
     public ResponseEntity<Void> callback(@RequestParam(name = "request_token", required = false) String requestToken,
-                                         @RequestParam(name = "status", required = false) String status,
-                                         HttpServletRequest request) {
+                                         @RequestParam(name = "status", required = false) String status) {
         boolean success = "success".equalsIgnoreCase(status) && requestToken != null && !requestToken.isBlank();
         String result = "error";
         if (success) {
@@ -50,13 +52,13 @@ public class KiteIntegrationController {
                 // Do not expose provider details or token material in the redirect URL.
             }
         }
-        String redirect = spaRedirect(request, result);
+        String redirect = spaRedirect(result);
         return ResponseEntity.status(303).header(HttpHeaders.LOCATION, redirect).build();
     }
 
-    private String spaRedirect(HttpServletRequest request, String result) {
-        String origin = request.getScheme() + "://" + request.getServerName()
-                + ((request.getServerPort() == 80 || request.getServerPort() == 443) ? "" : ":" + request.getServerPort());
+    private String spaRedirect(String result) {
+        URI callback = URI.create(properties.getRedirectUrl());
+        String origin = callback.getScheme() + "://" + callback.getRawAuthority();
         return origin + "/#integration?kite=" + result;
     }
 }
