@@ -55,8 +55,8 @@ public class BrokerOrderExecutionService {
     @Transactional
     public BrokerOrderResponse status(String orderId) {
         requireLive();
-        requireTracked(orderId);
-        return persist(provider.status(orderId), "BROKER_ORDER_STATUS_RECONCILED");
+        ExecutionRequestEntity request = requireTracked(orderId);
+        return reconcile(request);
     }
     @Transactional
     public BrokerOrderResponse cancel(String orderId) {
