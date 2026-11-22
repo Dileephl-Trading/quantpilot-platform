@@ -28,8 +28,6 @@ jobs:
           echo "ref=${{ github.ref }}"
           echo "event=${{ github.event_name }}"
           echo "workflow_ref=${{ github.workflow_ref }}"
-      - name: Debug GitHub OIDC claims
-        uses: github/actions-oidc-debugger@main
 
       - name: Debug repository context
         run: |
