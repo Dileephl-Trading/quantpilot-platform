@@ -35,6 +35,20 @@ jobs:
           echo "ref=${{ github.ref }}"
           echo "environment=${{ github.environment }}"
 
+      - name: Inspect OIDC claims
+        shell: bash
+        run: |
+          response=$(curl -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
+
+          token=$(echo "$response" | jq -r '.value')
+          payload=$(echo "$token" | cut -d. -f2)
+
+          payload="${payload}$(printf '%*s' $(( (4 - ${#payload} % 4) % 4 )) '' | tr ' ' '=')"
+
+          echo "$payload" | base64 -d 2>/dev/null | jq '{iss, aud, sub, repository, ref, workflow_ref}'
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
