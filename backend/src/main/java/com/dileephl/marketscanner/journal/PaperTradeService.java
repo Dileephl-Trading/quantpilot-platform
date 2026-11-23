@@ -60,6 +60,38 @@ public class PaperTradeService {
     }
 
     @Transactional(readOnly = true)
+    public List<TradeReplayEvent> replay(UUID id) {
+        PaperTradeEntity trade = trades.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Paper trade was not found"));
+        List<TradeReplayEvent> events = new ArrayList<>();
+        events.add(new TradeReplayEvent(
+                "INTENT_RECORDED", trade.createdAt(), TradeStatus.INTENDED,
+                trade.intendedEntryPrice(), trade.intendedQuantity(), null, null, null,
+                "Planned entry and stop were recorded; no fill was assumed."));
+        if (trade.status() == TradeStatus.CANCELLED) {
+            events.add(new TradeReplayEvent(
+                    "INTENT_CANCELLED", trade.cancelledAt(), TradeStatus.CANCELLED,
+                    null, null, null, null, null,
+                    "Intent was cancelled without a recorded fill."));
+            return events;
+        }
+        if (trade.filledAt() != null) {
+            events.add(new TradeReplayEvent(
+                    "ACTUAL_FILL", trade.filledAt(), TradeStatus.OPEN,
+                    trade.actualEntryPrice(), trade.filledQuantity(), null, null, null,
+                    "Actual broker/paper fill recorded; entry slippage is " + trade.slippageAmount() + "."));
+        }
+        if (trade.closedAt() != null) {
+            events.add(new TradeReplayEvent(
+                    "ACTUAL_EXIT", trade.closedAt(), TradeStatus.CLOSED,
+                    trade.actualExitPrice(), trade.filledQuantity(), trade.grossPnl(),
+                    trade.brokerage(), trade.netPnl(),
+                    "Exit reason: " + trade.exitReason() + "."));
+        }
+        return events;
+    }
+
+    @Transactional(readOnly = true)
     public String csv(LocalDate date) {
         DailyTradeReport report = report(date);
         StringBuilder csv = new StringBuilder();
@@ -148,7 +180,7 @@ public class PaperTradeService {
     public PaperTradeView cancel(UUID id) {
         PaperTradeEntity trade = get(id);
         profiles.currentForRiskDecision();
-        trade.cancel();
+        trade.cancel(OffsetDateTime.now(MARKET_ZONE));
         PaperTradeEntity saved = trades.save(trade);
         auditTrail.record("PAPER_TRADE_CANCELLED", "PAPER_TRADE", saved.id().toString(), "No fill recorded");
         return toView(saved);

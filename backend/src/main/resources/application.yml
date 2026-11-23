@@ -25,12 +25,6 @@ spring:
     validate-migration-naming: true
 
 server:
-  servlet:
-    session:
-      cookie:
-        http-only: ${SESSION_COOKIE_HTTP_ONLY:true}
-        secure: ${SESSION_COOKIE_SECURE:false}
-        same-site: ${SESSION_COOKIE_SAME_SITE:lax}
   address: ${SERVER_ADDRESS:127.0.0.1}
   port: ${SERVER_PORT:8080}
   error:
@@ -46,16 +40,8 @@ management:
       probes:
         enabled: true
 
-quantpilot:
-  security:
-    # Keep false only for local development. Set true behind HTTPS/VPN before deployment.
-    enabled: ${QUANTPILOT_SECURITY_ENABLED:false}
-    allowed-origin: ${QUANTPILOT_ALLOWED_ORIGIN:http://localhost:8080}
-    requests-per-minute: ${QUANTPILOT_API_RATE_LIMIT:120}
-
 scanner:
-  live-execution:
-    enabled: ${LIVE_EXECUTION_ENABLED:false}
+  live-execution-enabled: false
   execution:
     status-poll-ms: ${EXECUTION_STATUS_POLL_MS:5000}
     enabled: ${AUTOMATED_EXECUTION_ENABLED:false}
@@ -69,21 +55,28 @@ scanner:
     volume-lookback: ${SCANNER_VOLUME_LOOKBACK:5}
     volume-multiplier: ${SCANNER_VOLUME_MULTIPLIER:1.50}
     minimum-candles: ${SCANNER_MINIMUM_CANDLES:12}
+    # Optional symbol groups, for example bank-nifty or it.
     groups: {}
   market-session:
     zone-id: ${MARKET_SESSION_ZONE_ID:Asia/Kolkata}
     open: ${MARKET_SESSION_OPEN:09:15}
     close: ${MARKET_SESSION_CLOSE:15:30}
+    new-entry-start: ${MARKET_SESSION_NEW_ENTRY_START:09:30}
+    new-entry-cutoff: ${MARKET_SESSION_NEW_ENTRY_CUTOFF:14:45}
+    cancel-pending-at: ${MARKET_SESSION_CANCEL_PENDING_AT:14:55}
+    square-off-at: ${MARKET_SESSION_SQUARE_OFF_AT:15:00}
+    hard-flat-deadline: ${MARKET_SESSION_HARD_FLAT_DEADLINE:15:03}
+    # Comma-separated ISO dates, for example: 2026-01-26,2026-03-04
     holidays: ${MARKET_SESSION_HOLIDAYS:}
   zerodha:
+    # Credentials are optional until a Kite Connect app has been created. Never put secrets in Git.
     market-data-enabled: ${KITE_MARKET_DATA_ENABLED:false}
     stale-tick-seconds: ${KITE_STALE_TICK_SECONDS:20}
     reconnect-delay-seconds: ${KITE_RECONNECT_DELAY_SECONDS:3}
     order-routing-enabled: ${KITE_ORDER_ROUTING_ENABLED:false}
     api-key: ${KITE_API_KEY:}
     api-secret: ${KITE_API_SECRET:}
-    redirect-url: ${KITE_REDIRECT_URL:http://localhost:8080/api/v1/integrations/zerodha/callback}
+    redirect-url: ${KITE_REDIRECT_URL:http://127.0.0.1:8080/api/v1/integrations/zerodha/callback}
     api-base-url: ${KITE_API_BASE_URL:https://api.kite.trade}
     login-base-url: ${KITE_LOGIN_BASE_URL:https://kite.zerodha.com}
     websocket-base-url: ${KITE_WEBSOCKET_BASE_URL:wss://ws.kite.trade}
-    session-encryption-key: ${KITE_SESSION_ENCRYPTION_KEY:}

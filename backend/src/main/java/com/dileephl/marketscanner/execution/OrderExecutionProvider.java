@@ -6,5 +6,5 @@ public interface OrderExecutionProvider {
     BrokerOrderResponse cancel(String orderId);
     BrokerOrderResponse modify(String orderId, BrokerOrderRequest request);
     java.util.List<BrokerOrderResponse> cancelOpenOrders();
-    java.util.List<BrokerOrderResponse> listOrders();
+    java.util.List<BrokerOrderResponse> squareOffPositions();
 }

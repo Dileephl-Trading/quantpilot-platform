@@ -3,7 +3,6 @@ package com.dileephl.marketscanner.execution;
 import com.dileephl.marketscanner.audit.AuditTrailService;
 import com.dileephl.marketscanner.config.TradingMode;
 import com.dileephl.marketscanner.config.TradingProfileService;
-import com.dileephl.marketscanner.config.LiveExecutionProperties;
 import com.dileephl.marketscanner.integration.zerodha.KiteOrderExecutionProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,14 +18,10 @@ public class BrokerOrderExecutionService {
     private final ExecutionRequestRepository requests;
     private final ExecutionOrderEventRepository events;
     private final AuditTrailService audit;
-    private final LiveExecutionProperties liveExecutionProperties;
-    private final AutomationSafetyStateRepository safetyStates;
 
     public BrokerOrderExecutionService(TradingProfileService profiles, ExecutionPreviewService previews, KiteOrderExecutionProvider provider, SafetyService safety,
-                                       ExecutionRequestRepository requests, ExecutionOrderEventRepository events, AuditTrailService audit,
-                                       LiveExecutionProperties liveExecutionProperties,
-                                       AutomationSafetyStateRepository safetyStates) {
-        this.profiles = profiles; this.previews = previews; this.provider = provider; this.safety = safety; this.requests = requests; this.events = events; this.audit = audit; this.liveExecutionProperties = liveExecutionProperties; this.safetyStates = safetyStates;
+                                       ExecutionRequestRepository requests, ExecutionOrderEventRepository events, AuditTrailService audit) {
+        this.profiles = profiles; this.previews = previews; this.provider = provider; this.safety = safety; this.requests = requests; this.events = events; this.audit = audit;
     }
 
     @Transactional
@@ -57,8 +52,8 @@ public class BrokerOrderExecutionService {
     @Transactional
     public BrokerOrderResponse status(String orderId) {
         requireLive();
-        ExecutionRequestEntity request = requireTracked(orderId);
-        return reconcile(request);
+        requireTracked(orderId);
+        return persist(provider.status(orderId), "BROKER_ORDER_STATUS_RECONCILED");
     }
     @Transactional
     public BrokerOrderResponse cancel(String orderId) {
@@ -108,10 +103,24 @@ public class BrokerOrderExecutionService {
         return java.util.List.copyOf(responses);
     }
 
+    /** Closes current MIS net positions during the scheduled end-of-day safety window. */
+    @Transactional
+    public java.util.List<BrokerOrderResponse> squareOffPositionsForSafety() {
+        if (profiles.current().mode() != TradingMode.LIVE) return java.util.List.of();
+        try {
+            java.util.List<BrokerOrderResponse> responses = provider.squareOffPositions();
+            audit.record("BROKER_POSITION_SQUARE_OFF_REQUESTED", "TRADING_SAFETY", "GLOBAL",
+                    "count=" + responses.size());
+            return responses;
+        } catch (RuntimeException error) {
+            audit.record("BROKER_POSITION_SQUARE_OFF_FAILED", "TRADING_SAFETY", "GLOBAL", error.getMessage());
+            throw error;
+        }
+    }
+
     @Transactional
     public java.util.List<BrokerOrderResponse> reconcileTrackedOrders() {
         requireLive();
-        reconcileUnknownBrokerOrders();
         java.util.List<BrokerOrderResponse> responses = new java.util.ArrayList<>();
         for (ExecutionRequestEntity request : requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED"))) {
             responses.add(reconcile(request));
@@ -132,7 +141,6 @@ public class BrokerOrderExecutionService {
 
     private void requireLive() {
         if (safety.state().killSwitchEnabled()) throw new IllegalStateException("Kill switch is enabled; broker order routing is blocked");
-        if (!liveExecutionProperties.isEnabled()) throw new IllegalStateException("Live execution master gate is disabled");
         if (profiles.current().mode() != TradingMode.LIVE) {
             throw new IllegalStateException("Broker order routing requires explicit LIVE trading mode; current mode is PAPER/DRY_RUN");
         }
@@ -177,70 +185,7 @@ public class BrokerOrderExecutionService {
     @Transactional
     BrokerOrderResponse reconcile(ExecutionRequestEntity request) {
         BrokerOrderResponse response = provider.status(request.orderId());
-        BrokerOrderResponse persisted = persist(response, "BROKER_ORDER_STATUS_POLLED");
-        if (!request.protective()
-                && (persisted.status() == BrokerOrderStatus.PARTIALLY_FILLED
-                    || persisted.status() == BrokerOrderStatus.COMPLETE)) {
-            ensureProtectiveStop(request, persisted);
-        }
-        return persisted;
-    }
-
-    private void reconcileUnknownBrokerOrders() {
-        for (BrokerOrderResponse brokerOrder : provider.listOrders()) {
-            if (brokerOrder.orderId() == null || requests.findByOrderId(brokerOrder.orderId()).isPresent()) continue;
-            if (List.of(BrokerOrderStatus.PENDING, BrokerOrderStatus.OPEN, BrokerOrderStatus.PARTIALLY_FILLED)
-                    .contains(brokerOrder.status())) {
-                AutomationSafetyStateEntity state = safetyStates.findById(1)
-                        .orElseGet(() -> AutomationSafetyStateEntity.initial());
-                state.markUncertain("Unknown open broker order detected: " + brokerOrder.orderId());
-                safetyStates.save(state);
-                audit.record("UNKNOWN_BROKER_ORDER", "AUTOMATION_SAFETY", "GLOBAL",
-                        "orderId=" + brokerOrder.orderId() + ", status=" + brokerOrder.status());
-                throw new IllegalStateException("Unknown open broker order detected; manual reconciliation is required");
-            }
-        }
-    }
-
-    /**
-     * Creates one broker-side stop-market order for the filled quantity and increases its
-     * quantity when an entry order receives additional fills. A missing/rejected stop is
-     * treated as an uncertain broker state by the reconciliation scheduler.
-     */
-    private void ensureProtectiveStop(ExecutionRequestEntity entry, BrokerOrderResponse entryResponse) {
-        long filled = entryResponse.filledQuantity();
-        if (filled <= 0 || entry.stopPrice() == null || entry.stopPrice().signum() <= 0) return;
-        if (entryResponse.side() == null) throw new IllegalStateException("Broker did not return the entry transaction side");
-
-        ExecutionRequestEntity stop = requests.findByParentOrderId(entry.orderId()).stream().findFirst().orElse(null);
-        OrderSide stopSide = entryResponse.side() == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
-        BrokerOrderRequest stopRequest = new BrokerOrderRequest(
-                entry.symbol(), stopSide, filled, "SL-M", null, entry.stopPrice(),
-                entry.product(), entry.exchange(), entry.validity(), entry.stopPrice());
-
-        if (stop == null) {
-            BrokerOrderResponse response = provider.place(stopRequest);
-            ExecutionRequestEntity tracked = ExecutionRequestEntity.from(
-                    entry.orderId() + ":STOP", stopRequest, response, entry.orderId(), true);
-            requests.save(tracked);
-            events.save(ExecutionOrderEventEntity.from(response));
-            audit.record("PROTECTIVE_STOP_SUBMITTED", "BROKER_ORDER", response.orderId(),
-                    "parentOrderId=" + entry.orderId() + ", quantity=" + filled
-                            + ", triggerPrice=" + entry.stopPrice());
-            return;
-        }
-
-        if (stop.status().equals("OPEN") || stop.status().equals("PENDING")
-                || stop.status().equals("PARTIALLY_FILLED")) {
-            if (stop.quantity() < filled) {
-                BrokerOrderResponse response = provider.modify(stop.orderId(), stopRequest);
-                persist(response, "PROTECTIVE_STOP_MODIFIED");
-            }
-            return;
-        }
-
-        if (stop.status().equals("COMPLETE") && entryResponse.filledQuantity() <= stop.quantity()) return;
-        throw new IllegalStateException("Protective stop is not active for filled entry " + entry.orderId());
+        return persist(response, "BROKER_ORDER_STATUS_POLLED");
     }
 
     private BrokerOrderResponse persist(BrokerOrderResponse response, String eventType) {

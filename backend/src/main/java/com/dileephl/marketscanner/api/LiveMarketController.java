@@ -40,11 +40,6 @@ public class LiveMarketController {
     public ResponseEntity<List<LiveWatchlistView>> addGroup(@PathVariable String group) {
         return ResponseEntity.ok(liveMarketService.addGroup(group));
     }
-
-    @DeleteMapping("/watchlist/groups/{group}")
-    public ResponseEntity<List<LiveWatchlistView>> removeGroup(@PathVariable String group) {
-        return ResponseEntity.ok(liveMarketService.removeGroup(group));
-    }
     @PostMapping("/start") public ResponseEntity<LiveFeedStatus> start() { return ResponseEntity.ok(liveMarketService.start()); }
     @PostMapping("/stop") public ResponseEntity<LiveFeedStatus> stop() { return ResponseEntity.ok(liveMarketService.stop()); }
     @GetMapping("/status") public ResponseEntity<LiveFeedStatus> status() { return ResponseEntity.ok(liveMarketService.status()); }

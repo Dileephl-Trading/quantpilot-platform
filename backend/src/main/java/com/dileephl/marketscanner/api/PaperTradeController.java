@@ -36,6 +36,9 @@ public class PaperTradeController {
         return trades.report(tradeDate == null ? LocalDate.now(MARKET_ZONE) : tradeDate);
     }
 
+    @GetMapping("/{id}/replay")
+    public List<TradeReplayEvent> replay(@PathVariable UUID id) { return trades.replay(id); }
+
     @GetMapping(value = "/export", produces = "text/csv")
     public ResponseEntity<byte[]> export(@RequestParam(required = false) LocalDate tradeDate) {
         LocalDate date = tradeDate == null ? LocalDate.now(MARKET_ZONE) : tradeDate;

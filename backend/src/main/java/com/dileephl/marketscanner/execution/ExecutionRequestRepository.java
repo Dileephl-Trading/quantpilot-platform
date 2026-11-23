@@ -14,5 +14,4 @@ interface ExecutionRequestRepository extends JpaRepository<ExecutionRequestEntit
     long countByStatusIn(Collection<String> statuses);
     Optional<ExecutionRequestEntity> findTopBySymbolOrderByCreatedAtDesc(String symbol);
     java.util.Optional<ExecutionRequestEntity> findByOrderId(String orderId);
-    List<ExecutionRequestEntity> findByParentOrderId(String parentOrderId);
 }

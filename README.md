@@ -291,10 +291,13 @@ The service uses the saved profile to block a new intent when its risk exceeds t
 | --- | --- |
 | `GET /api/v1/paper-trades` | Today’s journal entries |
 | `GET /api/v1/paper-trades/summary` | Today’s P&L and remaining risk capacity |
+| `GET /api/v1/paper-trades/report?tradeDate=YYYY-MM-DD` | Daily gross/net P&L, charges, win rate and slippage |
+| `GET /api/v1/paper-trades/export?tradeDate=YYYY-MM-DD` | CSV export of the journal and realised results |
 | `POST /api/v1/paper-trades` | Record a new intended trade |
 | `POST /api/v1/paper-trades/{id}/fill` | Record the actual entry fill |
 | `POST /api/v1/paper-trades/{id}/close` | Record actual exit, charges and P&L |
 | `POST /api/v1/paper-trades/{id}/cancel` | Cancel an unfilled intent |
+| `GET /api/v1/paper-trades/{id}/replay` | Read-only lifecycle replay for one trade |
 
 These endpoints cannot send broker orders. They are the journal and control layer that future broker adapters will use.
 

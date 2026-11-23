@@ -6,7 +6,6 @@ import com.dileephl.marketscanner.config.MarketSessionService;
 import com.dileephl.marketscanner.config.TradingMode;
 import com.dileephl.marketscanner.config.TradingProfile;
 import com.dileephl.marketscanner.config.TradingProfileService;
-import com.dileephl.marketscanner.config.LiveExecutionProperties;
 import com.dileephl.marketscanner.integration.marketdata.CandleInterval;
 import com.dileephl.marketscanner.integration.zerodha.KiteAuthService;
 import com.dileephl.marketscanner.integration.zerodha.KiteConnectProperties;
@@ -39,24 +38,22 @@ public class AutomatedExecutionService {
     private final ExecutionRequestRepository requests;
     private final AutomationSafetyStateRepository safetyStates;
     private final AuditTrailService audit;
-    private final LiveExecutionProperties liveExecutionProperties;
 
     public AutomatedExecutionService(AutomatedExecutionProperties properties, TradingProfileService profiles,
                                      MarketSessionService sessions, KiteConnectProperties kiteProperties,
                                      KiteAuthService auth, SafetyService safety, ExecutionPreviewService previews,
                                      BrokerOrderExecutionService execution, ExecutionRequestRepository requests,
-                                     AutomationSafetyStateRepository safetyStates, AuditTrailService audit,
-                                     LiveExecutionProperties liveExecutionProperties) {
+                                     AutomationSafetyStateRepository safetyStates, AuditTrailService audit) {
         properties.validate();
         this.properties = properties; this.profiles = profiles; this.sessions = sessions;
         this.kiteProperties = kiteProperties; this.auth = auth; this.safety = safety;
         this.previews = previews; this.execution = execution; this.requests = requests;
-        this.safetyStates = safetyStates; this.audit = audit; this.liveExecutionProperties = liveExecutionProperties;
+        this.safetyStates = safetyStates; this.audit = audit;
     }
 
     public AutomatedStatus status() {
         TradingProfile profile = profiles.current();
-        return new AutomatedStatus(properties.isEnabled(), liveExecutionProperties.isEnabled(), profile.mode().name(), kiteProperties.isOrderRoutingEnabled(),
+        return new AutomatedStatus(properties.isEnabled(), profile.mode().name(), kiteProperties.isOrderRoutingEnabled(),
                 auth.hasCurrentAccessToken(), safety.state().killSwitchEnabled(), properties.getMaxSignalAgeSeconds(),
                 properties.getMaxOrderQuantity(), properties.getOrderType(), currentSafetyState().uncertainBrokerState());
     }
@@ -93,6 +90,10 @@ public class AutomatedExecutionService {
             BigDecimal stop = signal.invalidationReference();
             if (entry == null || stop == null || entry.signum() <= 0 || stop.signum() <= 0) {
                 throw new IllegalStateException("Signal has no positive entry and invalidation prices");
+            }
+            if ((side == OrderSide.BUY && stop.compareTo(entry) >= 0)
+                    || (side == OrderSide.SELL && stop.compareTo(entry) <= 0)) {
+                throw new IllegalStateException("Signal invalidation must be below entry for BUY and above entry for SELL");
             }
             if (requests.existsBySymbolAndStatusIn(normalizedSymbol, OPEN_STATUSES)) {
                 throw new IllegalStateException("An active order already exists for " + normalizedSymbol);
@@ -138,11 +139,10 @@ public class AutomatedExecutionService {
                          KiteConnectProperties kiteProperties, KiteAuthService auth, SafetyService safety,
                          SignalEngine.Candle candle, CandleInterval interval) {
         if (profile.mode() != TradingMode.LIVE) throw new IllegalStateException("Trading profile is not LIVE");
-        if (!liveExecutionProperties.isEnabled()) throw new IllegalStateException("Live execution master gate is disabled");
         if (!kiteProperties.isOrderRoutingEnabled()) throw new IllegalStateException("Kite order routing is disabled");
         if (!auth.hasCurrentAccessToken()) throw new IllegalStateException("Kite session is not connected");
         if (safety.state().killSwitchEnabled()) throw new IllegalStateException("Kill switch is enabled");
-        if (!sessions.isOpen(now)) throw new IllegalStateException("NSE cash session is closed");
+        if (!sessions.isNewEntryAllowed(now)) throw new IllegalStateException("New entries are closed outside the configured 09:30-14:45 window");
         OffsetDateTime candleEnd = candle.timestamp().plus(interval.candleDuration());
         if (candleEnd.isAfter(now)) throw new IllegalStateException("Candle is not complete");
         if (Duration.between(candleEnd, now).getSeconds() > properties.getMaxSignalAgeSeconds()) {
@@ -156,7 +156,7 @@ public class AutomatedExecutionService {
         return safetyStates.findById(1).orElseGet(() -> safetyStates.save(AutomationSafetyStateEntity.initial()));
     }
 
-    public record AutomatedStatus(boolean enabled, boolean liveExecutionArmed, String profileMode, boolean routingEnabled,
+    public record AutomatedStatus(boolean enabled, String profileMode, boolean routingEnabled,
                                   boolean sessionConnected, boolean killSwitchEnabled,
                                   int maxSignalAgeSeconds, long maxOrderQuantity, String orderType,
                                   boolean uncertainBrokerState) { }

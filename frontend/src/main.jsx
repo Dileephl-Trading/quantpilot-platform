@@ -23,43 +23,12 @@ function money(value) {
   }).format(Number(value || 0))
 }
 
-
-function LoginScreen({ onLogin, error, busy }) {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-
-  function submit(event) {
-    event.preventDefault()
-    onLogin(username, password)
-  }
-
-  return <main className="login-shell">
-    <section className="login-card">
-      <div className="login-brand"><span className="brand-mark">S</span><div><strong>Signal<span>Desk</span></strong><small>PRIVATE TRADING WORKSPACE</small></div></div>
-      <div className="login-copy">
-        <p className="eyebrow">SECURE ACCESS</p>
-        <h1>Welcome back</h1>
-        <p>Sign in to continue to your private market research workspace.</p>
-      </div>
-      <form className="login-form" onSubmit={submit}>
-        <label><span>Username</span><input autoFocus required value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" /></label>
-        <label><span>Password</span><input required type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" /></label>
-        {error && <div className="login-error"><span>!</span>{error}</div>}
-        <button className="primary full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <span>→</span></button>
-      </form>
-      <div className="login-footnote"><span className="status-dot" /> Local session protected · broker execution remains gated</div>
-    </section>
-  </main>
-}
-
 function App() {
   const [profile, setProfile] = useState(null)
   const [draft, setDraft] = useState(null)
   const [order, setOrder] = useState(initialOrder)
   const [preview, setPreview] = useState(null)
   const [active, setActive] = useState('overview')
-  const [marketSection, setMarketSection] = useState('connection')
-  const [openMenu, setOpenMenu] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -69,36 +38,6 @@ function App() {
   const [execution, setExecution] = useState(initialExecution)
   const [executionOrders, setExecutionOrders] = useState([])
   const [executionBusy, setExecutionBusy] = useState(false)
-  const [authReady, setAuthReady] = useState(false)
-  const [authenticated, setAuthenticated] = useState(false)
-  const [loginBusy, setLoginBusy] = useState(false)
-  const [loginError, setLoginError] = useState(null)
-
-
-  async function login(username, password) {
-    setLoginBusy(true)
-    setLoginError(null)
-    try {
-      await request('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      })
-      setAuthenticated(true)
-    } catch (error) {
-      setLoginError(error.message || 'Unable to sign in')
-    } finally {
-      setLoginBusy(false)
-    }
-  }
-
-  async function logout() {
-    try { await request('/api/v1/auth/logout', { method: 'POST' }) } catch (_) {}
-    setAuthenticated(false)
-    setProfile(null)
-    setDraft(null)
-    setActive('overview')
-  }
 
   const localRisk = useMemo(() => {
     const entry = Number(order.entryPrice)
@@ -108,18 +47,10 @@ function App() {
       ? Math.abs(entry - stop) * quantity : 0
   }, [order])
 
-  async function request(path, options = {}) {
-    const response = await fetch(`${apiBase}${path}`, {
-      ...options,
-      credentials: 'include',
-      headers: { ...(options.headers || {}) }
-    })
+  async function request(path, options) {
+    const response = await fetch(`${apiBase}${path}`, options)
     const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      const error = new Error(data.message || data.error || 'Request failed')
-      error.status = response.status
-      throw error
-    }
+    if (!response.ok) throw new Error(data.message || data.error || 'Request failed')
     return data
   }
 
@@ -136,41 +67,7 @@ function App() {
     }
   }
 
-  useEffect(() => {
-    let cancelled = false
-    request('/api/v1/auth/me')
-      .then(() => { if (!cancelled) setAuthenticated(true) })
-      .catch(error => { if (!cancelled && error.status === 401) setAuthenticated(false) })
-      .finally(() => { if (!cancelled) setAuthReady(true) })
-    return () => { cancelled = true }
-  }, [])
-
-  useEffect(() => {
-    const hash = window.location.hash
-    if (!hash.startsWith('#integration')) return
-    setActive('integration')
-    const query = hash.includes('?') ? hash.substring(hash.indexOf('?') + 1) : ''
-    const result = new URLSearchParams(query).get('kite')
-    if (result === 'connected') setNotice({ tone: 'success', text: 'Kite connected. Today’s encrypted session is ready.' })
-    if (result === 'error') setNotice({ tone: 'error', text: 'Kite login could not be completed. Connect again from this screen.' })
-    window.history.replaceState(null, '', window.location.pathname + window.location.search)
-  }, [])
-
-  useEffect(() => {
-    if (!notice) return undefined
-    const timer = window.setTimeout(() => setNotice(null), 2000)
-    return () => window.clearTimeout(timer)
-  }, [notice])
-
-  function handleButtonFeedback(event) {
-    const button = event.target?.closest?.('button')
-    if (!button || button.disabled) return
-    button.classList.remove('button-clicked')
-    window.requestAnimationFrame(() => {
-      button.classList.add('button-clicked')
-      window.setTimeout(() => button.classList.remove('button-clicked'), 240)
-    })
-  }
+  useEffect(() => { loadProfile() }, [])
 
   async function loadKiteStatus() {
     try {
@@ -180,20 +77,17 @@ function App() {
     }
   }
 
-  useEffect(() => {
-    if (authenticated) loadKiteStatus()
-  }, [authenticated])
+  useEffect(() => { loadKiteStatus() }, [])
 
   async function loadMarketSession() {
     try { setMarketSession(await request('/api/v1/market-session/status')) } catch (_) { setMarketSession(null) }
   }
 
   useEffect(() => {
-    if (!authenticated) return undefined
     loadMarketSession()
     const timer = window.setInterval(loadMarketSession, 30000)
     return () => window.clearInterval(timer)
-  }, [authenticated])
+  }, [])
 
   async function saveProfile(event) {
     event.preventDefault()
@@ -250,58 +144,26 @@ function App() {
     try { setExecutionOrders(await request('/api/v1/execution/orders')) } catch (error) { setNotice({ tone: 'error', text: error.message }) }
   }
 
-  useEffect(() => { if (authenticated) loadProfile() }, [authenticated])
-  useEffect(() => { if (active === 'execution' && authenticated) refreshExecution() }, [active, authenticated])
+  useEffect(() => { if (active === 'execution') refreshExecution() }, [active])
 
-  if (!authReady) return <main className="login-shell"><section className="login-card login-loading"><span className="brand-mark">S</span><p>Checking secure session…</p></section></main>
-  if (!authenticated) return <LoginScreen onLogin={login} error={loginError} busy={loginBusy} />
-
-  return <div className="app-shell" onClick={handleButtonFeedback}>
+  return <div className="app-shell">
     <aside className="sidebar">
-      <a className="brand" href="#overview" onClick={() => { setActive('overview'); setOpenMenu(null) }}>
+      <a className="brand" href="#overview" onClick={() => setActive('overview')}>
         <span className="brand-mark">S</span><span>Signal<span>Desk</span></span>
       </a>
       <p className="sidebar-label">WORKSPACE</p>
       <nav>
-        <button className={active === 'overview' ? 'nav-link active' : 'nav-link'} onClick={() => { setActive('overview'); setOpenMenu(null) }}><span>▦</span> Overview</button>
-
-        <div className="nav-group">
-          <button className={openMenu === 'trading' ? 'nav-link active nav-parent' : 'nav-link nav-parent'} onClick={() => setOpenMenu(current => current === 'trading' ? null : 'trading')}><span>⇄</span><span>Trading</span><span className="nav-chevron">{openMenu === 'trading' ? '⌃' : '⌄'}</span></button>
-          {openMenu === 'trading' && <div className="subnav">
-            <button className={active === 'risk' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('risk'); setOpenMenu('trading') }}>Risk preview</button>
-            <button className={active === 'execution' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('execution'); setOpenMenu('trading') }}>Execution</button>
-          </div>}
-        </div>
-
-        <div className="nav-group">
-          <button className={openMenu === 'records' ? 'nav-link active nav-parent' : 'nav-link nav-parent'} onClick={() => setOpenMenu(current => current === 'records' ? null : 'records')}><span>▤</span><span>Records</span><span className="nav-chevron">{openMenu === 'records' ? '⌃' : '⌄'}</span></button>
-          {openMenu === 'records' && <div className="subnav">
-            <button className={active === 'audit' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('audit'); setOpenMenu('records') }}>Audit log</button>
-            <button className={active === 'journal' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('journal'); setOpenMenu('records') }}>Trade journal</button>
-          </div>}
-        </div>
-
-        <div className="nav-group">
-          <button className={openMenu === 'market-data' ? 'nav-link active nav-parent' : 'nav-link nav-parent'} onClick={() => setOpenMenu(current => current === 'market-data' ? null : 'market-data')}><span>◌</span><span>Market data</span><span className="nav-chevron">{openMenu === 'market-data' ? '⌃' : '⌄'}</span></button>
-          {openMenu === 'market-data' && <div className="subnav">
-            <button className={active === 'integration' && marketSection === 'connection' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('integration'); setMarketSection('connection'); setOpenMenu('market-data') }}>Connection</button>
-            <button className={active === 'integration' && marketSection === 'symbols' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('integration'); setMarketSection('symbols'); setOpenMenu('market-data') }}>Symbols & candles</button>
-            <button className={active === 'integration' && marketSection === 'monitor' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('integration'); setMarketSection('monitor'); setOpenMenu('market-data') }}>Live monitor</button>
-            <button className={active === 'integration' && marketSection === 'strategy' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('integration'); setMarketSection('strategy'); setOpenMenu('market-data') }}>Scanner rules</button>
-          </div>}
-        </div>
-
-        <div className="nav-group">
-          <button className={openMenu === 'configuration' ? 'nav-link active nav-parent' : 'nav-link nav-parent'} onClick={() => setOpenMenu(current => current === 'configuration' ? null : 'configuration')}><span>⚙</span><span>Configuration</span><span className="nav-chevron">{openMenu === 'configuration' ? '⌃' : '⌄'}</span></button>
-          {openMenu === 'configuration' && <div className="subnav">
-            <button className={active === 'settings' ? 'subnav-link active' : 'subnav-link'} onClick={() => { setActive('settings'); setOpenMenu('configuration') }}>Trading profile</button>
-          </div>}
-        </div>
+        <button className={active === 'overview' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('overview')}><span>▦</span> Overview</button>
+        <button className={active === 'risk' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('risk')}><span>◈</span> Risk preview</button>
+        <button className={active === 'execution' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('execution')}><span>⇄</span> Execution</button>
+        <button className={active === 'audit' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('audit')}><span>▥</span> Audit log</button>
+        <button className={active === 'journal' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('journal')}><span>▤</span> Trade journal</button>
+        <button className={active === 'integration' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('integration')}><span>◌</span> Market data</button>
+        <button className={active === 'settings' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('settings')}><span>⚙</span> Trading profile</button>
       </nav>
       <div className="sidebar-footer">
         <div className="paper-chip"><span className="dot" /> PAPER MODE</div>
         <p>Your browser talks only to the local API.</p>
-        <button className="logout-button" onClick={logout}>Sign out</button>
       </div>
     </aside>
 
@@ -373,7 +235,7 @@ function App() {
 
         {active === 'journal' && <Journal notify={setNotice} />}
 
-        {active === 'integration' && <KiteIntegration status={kiteStatus} refresh={loadKiteStatus} notify={setNotice} section={marketSection} setSection={setMarketSection} />}
+        {active === 'integration' && <KiteIntegration status={kiteStatus} refresh={loadKiteStatus} notify={setNotice} />}
 
         {active === 'settings' && draft && <form className="panel settings-panel" onSubmit={saveProfile}>
           <div className="panel-heading"><div><p className="eyebrow">LOCAL CONFIGURATION</p><h2>Paper-trading guardrails</h2><p>These limits are stored in your local PostgreSQL database.</p></div><span className="badge">PAPER / DRY-RUN only</span></div>
@@ -484,7 +346,7 @@ function ExecutionConsole({ profile, status, form, change, orders, busy, setBusy
   </section>
 }
 
-function KiteIntegration({ status, refresh, notify, section, setSection }) {
+function KiteIntegration({ status, refresh, notify }) {
   const [loadingUrl, setLoadingUrl] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState(null)
@@ -555,22 +417,13 @@ function KiteIntegration({ status, refresh, notify, section, setSection }) {
   const configured = status?.state === 'READY_FOR_MARKET_DATA'
   return <section className="integration-page">
     <section className="safety-banner"><div className="safety-icon">◌</div><div><strong>Market data and broker routing are separately gated.</strong><p>Order placement, modification, and cancellation are available only from the Execution screen after every explicit safety gate passes.</p></div></section>
-    <div className="market-data-tabs" role="tablist" aria-label="Market data sections">
-      <button className={section === 'connection' ? 'market-tab active' : 'market-tab'} onClick={() => setSection('connection')}>Connection</button>
-      <button className={section === 'symbols' ? 'market-tab active' : 'market-tab'} onClick={() => setSection('symbols')}>Symbols & candles</button>
-      <button className={section === 'monitor' ? 'market-tab active' : 'market-tab'} onClick={() => setSection('monitor')}>Live monitor</button>
-      <button className={section === 'strategy' ? 'market-tab active' : 'market-tab'} onClick={() => setSection('strategy')}>Scanner rules</button>
-    </div>
-
-    <div className={section === 'connection' ? 'market-section active' : 'market-section'}>
     <div className="integration-grid">
       <section className="panel integration-card">
         <div className="panel-heading"><div><p className="eyebrow">ZERODHA KITE CONNECT</p><h2>{status?.state?.replaceAll('_', ' ') || 'Checking configuration'}</h2></div><span className={`badge ${configured ? 'green' : 'blue'}`}>{status?.executionState || 'DISABLED'}</span></div>
         <div className="integration-rows">
           <IntegrationRow label="API key" value={status?.apiKeyConfigured ? 'Configured locally' : 'Not configured'} ok={status?.apiKeyConfigured} />
           <IntegrationRow label="API secret" value={status?.apiSecretConfigured ? 'Configured locally' : 'Not configured'} ok={status?.apiSecretConfigured} />
-          <IntegrationRow label="Session token" value={status?.accessTokenConfigured ? 'Connected and encrypted locally' : 'Not connected for today'} ok={status?.accessTokenConfigured} />
-          {status?.sessionExpiresAt && <IntegrationRow label="Session expiry" value={new Date(status.sessionExpiresAt).toLocaleString()} ok={status.accessTokenConfigured} />}
+          <IntegrationRow label="Session token" value={status?.accessTokenConfigured ? 'Connected for current run' : 'Not connected for today'} ok={status?.accessTokenConfigured} />
           <IntegrationRow label="Live market data" value={status?.marketDataEnabled ? 'Explicitly enabled' : 'Disabled'} ok={status?.marketDataEnabled} />
         </div>
         <div className="integration-next"><span>Next step</span><strong>{status?.nextStep || 'Loading local connection state…'}</strong></div>
@@ -578,8 +431,6 @@ function KiteIntegration({ status, refresh, notify, section, setSection }) {
       </section>
       <aside className="panel journal-help"><p className="eyebrow">SAFE ACTIVATION PATH</p><h2>What happens after purchase</h2><ol><li>Add credentials only to your uncommitted local <b>.env</b> file.</li><li>Use Kite login to create that day’s session token.</li><li>Verify instrument import and a historical-candle request.</li><li>Enable live WebSocket data only after both tests pass.</li></ol><p>API secret and access token never appear in this page or in browser storage.</p></aside>
     </div>
-    </div>
-    <div className={section === 'symbols' ? 'market-section active' : 'market-section'}>
     <section className="panel verification-card">
       <div className="panel-heading"><div><p className="eyebrow">READ-ONLY DATA VERIFICATION</p><h2>Sync symbols and inspect completed candles</h2><p>Only NSE cash equities are stored locally in this phase. No order can be created from this screen.</p></div><span className={`badge ${marketDataReady ? 'green' : 'blue'}`}>{marketDataReady ? 'Ready to verify' : 'Data disabled'}</span></div>
       {!marketDataReady && <p className="verification-warning">Enable <code>KITE_MARKET_DATA_ENABLED=true</code> in your local <code>.env</code>, restart, then connect Kite again before using these controls.</p>}
@@ -591,15 +442,9 @@ function KiteIntegration({ status, refresh, notify, section, setSection }) {
       {selected && <div className="historical-check"><div><p className="eyebrow">HISTORICAL CHECK</p><strong>{selected.tradingsymbol}</strong><span> · 5-minute completed candles</span></div><label className="date-field">Trading date<input type="date" value={tradeDate} onChange={event => setTradeDate(event.target.value)} /></label><button className="primary" onClick={verifyHistorical} disabled={verifying}>{verifying ? 'Fetching…' : 'Fetch and evaluate'}</button></div>}
       {verification && <div className="verification-result"><div><span>Completed candles</span><strong>{verification.count}</strong></div><div><span>Scanner result</span><strong>{verification.signal.type}</strong></div><div><span>Reference price</span><strong>{money(verification.signal.referencePrice)}</strong></div><p>{verification.signal.reasons?.join(' · ')}</p></div>}
     </section>
-    </div>
-    <div className={section === 'monitor' ? 'market-section active' : 'market-section'}>
     <LiveStream selected={selected} marketDataReady={marketDataReady} notify={notify} />
-    </div>
-    <div className={section === 'strategy' ? 'market-section active' : 'market-section'}>
     <ScannerSettings marketDataReady={marketDataReady} notify={notify} />
-    </div>
-    <div className={section === 'connection' ? 'market-section active' : 'market-section'}><section className="panel contract-card"><p className="eyebrow">IMPLEMENTED CONTRACTS</p><h2>Ready for credential-backed verification</h2><div className="contract-grid"><div><strong>GET /instruments</strong><span>Downloads the published instrument CSV.</span></div><div><strong>GET /instruments/historical/:token/:interval</strong><span>Retrieves historical candles into provider-neutral candle objects.</span></div><div><strong>Kite OAuth session flow</strong><span>Builds the login URL and SHA-256 session checksum.</span></div></div></section>
-    </div>
+    <section className="panel contract-card"><p className="eyebrow">IMPLEMENTED CONTRACTS</p><h2>Ready for credential-backed verification</h2><div className="contract-grid"><div><strong>GET /instruments</strong><span>Downloads the published instrument CSV.</span></div><div><strong>GET /instruments/historical/:token/:interval</strong><span>Retrieves historical candles into provider-neutral candle objects.</span></div><div><strong>Kite OAuth session flow</strong><span>Builds the login URL and SHA-256 session checksum.</span></div></div></section>
   </section>
 }
 
@@ -677,20 +522,6 @@ function LiveStream({ selected, marketDataReady, notify }) {
       notify({ tone: 'success', text: `${group} group added to the local watchlist. Restart the monitor if it is currently stopped.` })
     } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
   }
-  async function removeGroup(group) {
-    const label = group === 'bank-nifty' ? 'Bank Nifty' : group.toUpperCase()
-    if (connected) {
-      notify({ tone: 'error', text: 'Stop the live monitor before removing a group.' })
-      return
-    }
-    if (!window.confirm(`Remove all currently watched ${label} symbols? This only changes the watchlist.`)) return
-    setBusy(true)
-    try {
-      await api(`/api/v1/live-market/watchlist/groups/${group}`, { method: 'DELETE' })
-      await refresh()
-      notify({ tone: 'success', text: `${label} symbols removed from the local watchlist.` })
-    } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
-  }
   async function toggleStream(path) {
     setBusy(true)
     try { await api(path, { method: 'POST' }); await refresh() } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
@@ -698,7 +529,7 @@ function LiveStream({ selected, marketDataReady, notify }) {
   const connected = status?.state === 'CONNECTED'
   return <section className="panel live-card">
     <div className="panel-heading"><div><p className="eyebrow">LIVE WATCHLIST — READ ONLY</p><h2>Completed-candle signal monitor</h2><p>Signals are generated only after a five-minute candle closes. They are alerts, never orders.</p></div><span className={`badge ${connected ? 'green' : 'blue'}`}>{status?.state || 'STOPPED'}</span></div>
-    <div className="live-actions"><button className="ghost" onClick={refresh}>↻ Refresh</button><button className="ghost" onClick={addSelected} disabled={!marketDataReady || !selected || busy}>{selected ? `Add ${selected.tradingsymbol}` : 'Select a symbol above'}</button>{groups.map(group => <span key={group} className="group-action"><button className="ghost group-button" onClick={() => addGroup(group)} disabled={!marketDataReady || busy}>{group === 'bank-nifty' ? 'Add Bank Nifty' : `Add ${group.toUpperCase()}`}</button><button className="ghost group-remove-button" onClick={() => removeGroup(group)} disabled={!marketDataReady || busy || connected}>{group === 'bank-nifty' ? 'Remove Bank Nifty' : `Remove ${group.toUpperCase()}`}</button></span>)}{connected ? <button className="danger-button" onClick={() => toggleStream('/api/v1/live-market/stop')} disabled={busy}>Stop monitor</button> : <button className="primary" onClick={() => toggleStream('/api/v1/live-market/start')} disabled={!marketDataReady || watchlist.length === 0 || busy}>{busy ? 'Working…' : 'Start monitor'}</button>}</div>
+    <div className="live-actions"><button className="ghost" onClick={refresh}>↻ Refresh</button><button className="ghost" onClick={addSelected} disabled={!marketDataReady || !selected || busy}>{selected ? `Add ${selected.tradingsymbol}` : 'Select a symbol above'}</button>{groups.map(group => <button key={group} className="ghost group-button" onClick={() => addGroup(group)} disabled={!marketDataReady || busy}>{group === 'bank-nifty' ? 'Add Bank Nifty' : `Add ${group.toUpperCase()}`}</button>)}{connected ? <button className="danger-button" onClick={() => toggleStream('/api/v1/live-market/stop')} disabled={busy}>Stop monitor</button> : <button className="primary" onClick={() => toggleStream('/api/v1/live-market/start')} disabled={!marketDataReady || watchlist.length === 0 || busy}>{busy ? 'Working…' : 'Start monitor'}</button>}</div>
     <div className="live-grid"><div><span>Watchlist and latest ticks · {watchlist.length} symbols</span>{watchlist.length === 0 ? <p>No selected symbols yet.</p> : <ul>{watchlist.map(item => <li key={item.instrumentToken}><div><strong>{item.symbol}</strong><small>{status?.latestPrices?.[item.instrumentToken] ? `${money(status.latestPrices[item.instrumentToken])} · tick ${status.lastTickAt ? new Date(status.lastTickAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'pending'}` : 'Waiting for first tick'}</small></div><button className="watchlist-remove" onClick={() => removeSymbol(item.instrumentToken, item.symbol)} disabled={busy || connected}>Remove</button></li>)}</ul>}{connected && watchlist.length > 0 && <small className="watchlist-note">Stop the monitor before removing symbols.</small>}</div><div><span>Signal history · actionable only</span>{signals.length === 0 ? <p>{connected ? 'No actionable signal yet. Completed NO_TRADE evaluations are shown below.' : 'Start the monitor after adding symbols.'}</p> : <ul>{signals.slice(0, 20).map(signal => <li key={`${signal.instrumentToken}-${signal.candleStart}`} className={signal.type === 'WATCH_LONG' ? 'long-signal' : 'short-signal'}><strong>{signal.symbol} · {signal.type}</strong><small>{money(signal.referencePrice)} · {new Date(signal.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></li>)}</ul>}</div></div>
     <div className="candle-panel"><div className="candle-heading"><span>Completed live candles</span><small>{candles.length ? 'Latest candles are shown first' : 'No completed live candle received in this run'}</small></div>{candles.length === 0 ? <p className="empty-candles">The first row appears after the next five-minute boundary receives a tick.</p> : <div className="candle-table-wrap"><table className="candle-table"><thead><tr><th>Symbol / time</th><th>OHLC</th><th>Volume</th><th>Evaluation</th><th>VWAP</th></tr></thead><tbody>{candles.slice(0, 20).map(candle => <tr key={`${candle.instrumentToken}-${candle.candleStart}`}><td><strong>{candle.symbol}</strong><small>{new Date(candle.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></td><td>{money(candle.open)} / {money(candle.high)} / {money(candle.low)} / {money(candle.close)}</td><td>{candle.volume.toLocaleString()}</td><td><span className={`candle-evaluation ${candle.evaluationType === 'WATCH_LONG' ? 'long-signal' : candle.evaluationType === 'WATCH_SHORT' ? 'short-signal' : ''}`}>{candle.evaluationType}</span></td><td>{candle.vwap ? money(candle.vwap) : '—'}</td></tr>)}</tbody></table></div>}</div>
     {status?.lastError && <p className="live-error">{status.lastError}</p>}
@@ -712,6 +543,7 @@ function Journal({ notify }) {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [action, setAction] = useState(null)
+  const [replay, setReplay] = useState(null)
   const [actionPrice, setActionPrice] = useState('')
   const [actionQuantity, setActionQuantity] = useState('')
   const [brokerage, setBrokerage] = useState('0')
@@ -774,6 +606,13 @@ function Journal({ notify }) {
     } catch (error) { notify({ tone: 'error', text: error.message }) }
   }
 
+  async function openReplay(trade) {
+    try {
+      const events = await api(`/api/v1/paper-trades/${trade.id}/replay`)
+      setReplay({ trade, events })
+    } catch (error) { notify({ tone: 'error', text: error.message }) }
+  }
+
   return <section className="journal-page">
     <div className="journal-metrics">
       <Metric label="Today’s realised P&L" value={money(summary?.realisedPnl)} detail="After recorded charges" accent={Number(summary?.realisedPnl) < 0 ? 'red' : ''} />
@@ -800,9 +639,10 @@ function Journal({ notify }) {
       <div className="panel journal-help"><p className="eyebrow">LIFECYCLE</p><h2>Intent ≠ fill</h2><ol><li><b>INTENDED</b> — approved plan and proposed risk.</li><li><b>OPEN</b> — you record actual fill price and quantity.</li><li><b>CLOSED</b> — you record actual exit, charges and P&L.</li></ol><p>There is no assumed fill price in this journal.</p></div>
     </div>
     <section className="panel table-panel"><div className="panel-heading"><div><p className="eyebrow">TODAY</p><h2>Trade history</h2></div><div className="row-actions"><button className="ghost" onClick={reload}>↻ Refresh</button><button className="ghost" onClick={() => window.open(`${apiBase}/api/v1/paper-trades/export`, '_blank')}>↓ Export CSV</button></div></div>
-      {loading ? <p className="empty">Loading journal…</p> : trades.length === 0 ? <p className="empty">No intents recorded today. Start by recording a risk-checked setup.</p> : <div className="trade-table-wrap"><table><thead><tr><th>Symbol</th><th>Side</th><th>Status</th><th>Intended</th><th>Actual</th><th>Slippage</th><th>Net P&L</th><th /></tr></thead><tbody>{trades.map(trade => <tr key={trade.id}><td><strong>{trade.symbol}</strong><small>{trade.strategy || 'No strategy label'}</small></td><td className={trade.side === 'BUY' ? 'buy' : 'sell'}>{trade.side}</td><td><span className={`status ${trade.status.toLowerCase()}`}>{trade.status}</span></td><td>₹{trade.intendedEntryPrice} × {trade.intendedQuantity}<small>Stop ₹{trade.stopPrice}</small></td><td>{trade.actualEntryPrice ? <>₹{trade.actualEntryPrice} × {trade.filledQuantity}<small>{trade.actualExitPrice ? `Exit ₹${trade.actualExitPrice}` : 'Open position'}</small></> : '—'}</td><td>{trade.slippageAmount == null ? '—' : money(trade.slippageAmount)}<small>{trade.slippagePerUnit == null ? '' : `₹${trade.slippagePerUnit}/unit`}</small></td><td className={Number(trade.netPnl) < 0 ? 'loss' : 'profit'}>{trade.netPnl == null ? '—' : money(trade.netPnl)}</td><td className="row-actions">{trade.status === 'INTENDED' && <><button onClick={() => startAction('fill', trade)}>Fill</button><button onClick={() => { if (window.confirm(`Cancel ${trade.symbol} intent?`)) startAction('cancel', trade) }}>Cancel</button></>}{trade.status === 'OPEN' && <button onClick={() => startAction('close', trade)}>Close</button>}</td></tr>)}</tbody></table></div>}
+      {loading ? <p className="empty">Loading journal…</p> : trades.length === 0 ? <p className="empty">No intents recorded today. Start by recording a risk-checked setup.</p> : <div className="trade-table-wrap"><table><thead><tr><th>Symbol</th><th>Side</th><th>Status</th><th>Intended</th><th>Actual</th><th>Slippage</th><th>Net P&L</th><th /></tr></thead><tbody>{trades.map(trade => <tr key={trade.id}><td><strong>{trade.symbol}</strong><small>{trade.strategy || 'No strategy label'}</small></td><td className={trade.side === 'BUY' ? 'buy' : 'sell'}>{trade.side}</td><td><span className={`status ${trade.status.toLowerCase()}`}>{trade.status}</span></td><td>₹{trade.intendedEntryPrice} × {trade.intendedQuantity}<small>Stop ₹{trade.stopPrice}</small></td><td>{trade.actualEntryPrice ? <>₹{trade.actualEntryPrice} × {trade.filledQuantity}<small>{trade.actualExitPrice ? `Exit ₹${trade.actualExitPrice}` : 'Open position'}</small></> : '—'}</td><td>{trade.slippageAmount == null ? '—' : money(trade.slippageAmount)}<small>{trade.slippagePerUnit == null ? '' : `₹${trade.slippagePerUnit}/unit`}</small></td><td className={Number(trade.netPnl) < 0 ? 'loss' : 'profit'}>{trade.netPnl == null ? '—' : money(trade.netPnl)}</td><td className="row-actions"><button onClick={() => openReplay(trade)}>Replay</button>{trade.status === 'INTENDED' && <><button onClick={() => startAction('fill', trade)}>Fill</button><button onClick={() => { if (window.confirm(`Cancel ${trade.symbol} intent?`)) startAction('cancel', trade) }}>Cancel</button></>}{trade.status === 'OPEN' && <button onClick={() => startAction('close', trade)}>Close</button>}</td></tr>)}</tbody></table></div>}
     </section>
     {action && <div className="modal-backdrop"><form className="modal" onSubmit={submitAction}><button type="button" className="modal-close" onClick={() => setAction(null)}>×</button><p className="eyebrow">{action.type.toUpperCase()} {action.trade.symbol}</p><h2>{action.type === 'fill' ? 'Record actual fill' : action.type === 'close' ? 'Record actual exit' : 'Cancel trade intent'}</h2>{action.type === 'cancel' ? <p>Confirm that no fill occurred. This action cannot be reversed.</p> : <div className="modal-fields"><Field label={action.type === 'fill' ? 'Actual entry price (₹)' : 'Actual exit price (₹)'}><input required autoFocus type="number" min="0" step="0.05" value={actionPrice} onChange={e => setActionPrice(e.target.value)} /></Field>{action.type === 'fill' && <Field label="Actual filled quantity"><input required type="number" min="1" max={action.trade.intendedQuantity} value={actionQuantity} onChange={e => setActionQuantity(e.target.value)} /></Field>}{action.type === 'close' && <><Field label="Brokerage and charges (₹)"><input required type="number" min="0" step="0.01" value={brokerage} onChange={e => setBrokerage(e.target.value)} /></Field><Field label="Exit reason"><select value={exitReason} onChange={e => setExitReason(e.target.value)}><option>STOP_LOSS</option><option>TARGET</option><option>MANUAL</option><option>END_OF_DAY</option></select></Field></>}</div>}<button className={action.type === 'cancel' ? 'danger-button full' : 'primary full'}>{action.type === 'fill' ? 'Confirm actual fill' : action.type === 'close' ? 'Record exit and P&L' : 'Confirm cancellation'}</button></form></div>}
+    {replay && <div className="modal-backdrop"><div className="modal replay-modal"><button type="button" className="modal-close" onClick={() => setReplay(null)}>×</button><p className="eyebrow">TRADE REPLAY · {replay.trade.symbol}</p><h2>Recorded lifecycle</h2><p>Replay is derived from persisted journal values; it never changes the trade.</p><div className="replay-timeline">{replay.events.map((event, index) => <div className="replay-event" key={`${event.event}-${index}`}><span className="replay-marker">{index + 1}</span><div><strong>{event.event.replaceAll('_', ' ')}</strong><small>{event.occurredAt ? new Date(event.occurredAt).toLocaleString() : '—'} · {event.details}</small>{event.netPnl != null && <small>Gross {money(event.grossPnl)} · Charges {money(event.charges)} · Net {money(event.netPnl)}</small>}</div></div>)}</div></div></div>}
   </section>
 }
 

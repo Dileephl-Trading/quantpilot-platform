@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -27,6 +26,7 @@ public class MarketSessionService {
     }
 
     MarketSessionService(MarketSessionProperties properties, Clock clock) {
+        properties.validate();
         this.properties = properties;
         this.clock = clock;
         this.zone = ZoneId.of(properties.getZoneId());
@@ -39,6 +39,27 @@ public class MarketSessionService {
         return isTradingDate(local.toLocalDate())
                 && !local.toLocalTime().isBefore(properties.getOpen())
                 && local.toLocalTime().isBefore(properties.getClose());
+    }
+
+    public boolean isNewEntryAllowed(OffsetDateTime timestamp) {
+        ZonedDateTime local = timestamp.toInstant().atZone(zone);
+        return isTradingDate(local.toLocalDate()) && !local.toLocalTime().isBefore(properties.getNewEntryStart())
+                && local.toLocalTime().isBefore(properties.getNewEntryCutoff());
+    }
+
+    public boolean isCancelPendingDue(OffsetDateTime timestamp) {
+        return isTradingDate(timestamp.toInstant().atZone(zone).toLocalDate())
+                && !timestamp.toInstant().atZone(zone).toLocalTime().isBefore(properties.getCancelPendingAt());
+    }
+
+    public boolean isSquareOffDue(OffsetDateTime timestamp) {
+        return isTradingDate(timestamp.toInstant().atZone(zone).toLocalDate())
+                && !timestamp.toInstant().atZone(zone).toLocalTime().isBefore(properties.getSquareOffAt());
+    }
+
+    public boolean isHardFlatDeadline(OffsetDateTime timestamp) {
+        return isTradingDate(timestamp.toInstant().atZone(zone).toLocalDate())
+                && !timestamp.toInstant().atZone(zone).toLocalTime().isBefore(properties.getHardFlatDeadline());
     }
 
     public boolean isTradingDate(LocalDate date) {
@@ -56,10 +77,13 @@ public class MarketSessionService {
                 : now.toLocalTime().isBefore(properties.getOpen()) ? "Before NSE cash-session open"
                 : "After NSE cash-session close";
         return new MarketSessionStatus(now.toOffsetDateTime(), tradingDate, open,
-                properties.getOpen(), properties.getClose(), reason);
+                properties.getOpen(), properties.getClose(), properties.getNewEntryStart(),
+                properties.getNewEntryCutoff(), properties.getSquareOffAt(), properties.getHardFlatDeadline(), reason);
     }
 
     public record MarketSessionStatus(OffsetDateTime now, boolean tradingDate, boolean open,
                                       java.time.LocalTime sessionOpen, java.time.LocalTime sessionClose,
+                                      java.time.LocalTime newEntryStart, java.time.LocalTime newEntryCutoff,
+                                      java.time.LocalTime squareOffAt, java.time.LocalTime hardFlatDeadline,
                                       String reason) { }
 }

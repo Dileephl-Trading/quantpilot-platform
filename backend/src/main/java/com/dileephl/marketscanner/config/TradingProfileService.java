@@ -12,15 +12,12 @@ public class TradingProfileService {
     private final TradingProfileRepository repository;
     private final AuditTrailService auditTrail;
     private final KiteConnectProperties kiteProperties;
-    private final LiveExecutionProperties liveExecutionProperties;
 
     public TradingProfileService(TradingProfileRepository repository, AuditTrailService auditTrail,
-                                 KiteConnectProperties kiteProperties,
-                                 LiveExecutionProperties liveExecutionProperties) {
+                                 KiteConnectProperties kiteProperties) {
         this.repository = repository;
         this.auditTrail = auditTrail;
         this.kiteProperties = kiteProperties;
-        this.liveExecutionProperties = liveExecutionProperties;
     }
 
     @Transactional
@@ -70,9 +67,6 @@ public class TradingProfileService {
                 || profile.maxLossPerTrade().signum() <= 0 || profile.maxDailyLoss().signum() <= 0
                 || profile.maxTradesPerDay() <= 0 || profile.maxOpenPositions() <= 0 || profile.cooldownSeconds() < 0) {
             throw new IllegalArgumentException("Capital, loss limits and position limits must be positive");
-        }
-        if (profile.mode() == TradingMode.LIVE && !liveExecutionProperties.isEnabled()) {
-            throw new IllegalArgumentException("LIVE mode requires LIVE_EXECUTION_ENABLED=true and an explicit application restart");
         }
         if (profile.mode() == TradingMode.LIVE && !kiteProperties.isOrderRoutingEnabled()) {
             throw new IllegalArgumentException("LIVE mode requires KITE_ORDER_ROUTING_ENABLED=true and an explicit application restart");

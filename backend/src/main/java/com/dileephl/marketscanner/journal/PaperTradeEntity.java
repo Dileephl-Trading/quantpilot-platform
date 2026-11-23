@@ -36,6 +36,7 @@ class PaperTradeEntity {
 
     private OffsetDateTime filledAt;
     private OffsetDateTime closedAt;
+    private OffsetDateTime cancelledAt;
 
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal intendedEntryPrice;
@@ -124,8 +125,9 @@ class PaperTradeEntity {
         status = TradeStatus.CLOSED;
     }
 
-    void cancel() {
+    void cancel(OffsetDateTime at) {
         if (status != TradeStatus.INTENDED) throw new IllegalStateException("Only an intended trade can be cancelled");
+        cancelledAt = at;
         status = TradeStatus.CANCELLED;
     }
 
@@ -137,6 +139,7 @@ class PaperTradeEntity {
     OffsetDateTime createdAt() { return createdAt; }
     OffsetDateTime filledAt() { return filledAt; }
     OffsetDateTime closedAt() { return closedAt; }
+    OffsetDateTime cancelledAt() { return cancelledAt; }
     BigDecimal intendedEntryPrice() { return intendedEntryPrice; }
     BigDecimal stopPrice() { return stopPrice; }
     long intendedQuantity() { return intendedQuantity; }

@@ -32,6 +32,23 @@ class MarketSessionServiceTest {
         assertFalse(serviceAt("2026-11-19T10:00:00+05:30", Set.of(LocalDate.of(2026, 11, 19))).isOpenNow());
     }
 
+    @Test
+    void allowsEntriesOnlyInsideConfiguredWindow() {
+        assertFalse(serviceAt("2026-11-19T09:29:59+05:30", Set.of()).isNewEntryAllowed(OffsetDateTime.parse("2026-11-19T09:29:59+05:30")));
+        assertTrue(serviceAt("2026-11-19T09:30:00+05:30", Set.of()).isNewEntryAllowed(OffsetDateTime.parse("2026-11-19T09:30:00+05:30")));
+        assertFalse(serviceAt("2026-11-19T14:45:00+05:30", Set.of()).isNewEntryAllowed(OffsetDateTime.parse("2026-11-19T14:45:00+05:30")));
+    }
+
+    @Test
+    void exposesCloseoutWindows() {
+        MarketSessionService service = serviceAt("2026-11-19T15:00:00+05:30", Set.of());
+        OffsetDateTime now = OffsetDateTime.parse("2026-11-19T15:00:00+05:30");
+        assertTrue(service.isCancelPendingDue(now));
+        assertTrue(service.isSquareOffDue(now));
+        assertFalse(service.isHardFlatDeadline(now));
+        assertTrue(service.isHardFlatDeadline(OffsetDateTime.parse("2026-11-19T15:03:00+05:30")));
+    }
+
     private MarketSessionService serviceAt(String timestamp, Set<LocalDate> holidays) {
         MarketSessionProperties properties = new MarketSessionProperties();
         properties.setHolidays(holidays);
