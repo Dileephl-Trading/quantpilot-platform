@@ -16,6 +16,7 @@ public class KiteConnectProperties {
     private String apiBaseUrl = "https://api.kite.trade";
     private String loginBaseUrl = "https://kite.zerodha.com";
     private String websocketBaseUrl = "wss://ws.kite.trade";
+    private String sessionEncryptionKey;
     private int staleTickSeconds = 20;
     private int reconnectDelaySeconds = 3;
 
@@ -35,6 +36,8 @@ public class KiteConnectProperties {
     public void setLoginBaseUrl(String loginBaseUrl) { this.loginBaseUrl = loginBaseUrl; }
     public String getWebsocketBaseUrl() { return websocketBaseUrl; }
     public void setWebsocketBaseUrl(String websocketBaseUrl) { this.websocketBaseUrl = websocketBaseUrl; }
+    public String getSessionEncryptionKey() { return sessionEncryptionKey; }
+    public void setSessionEncryptionKey(String value) { this.sessionEncryptionKey = value; }
     public int getStaleTickSeconds() { return staleTickSeconds; }
     public void setStaleTickSeconds(int value) { staleTickSeconds = value; }
     public int getReconnectDelaySeconds() { return reconnectDelaySeconds; }

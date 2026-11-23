@@ -80,3 +80,4 @@ scanner:
     api-base-url: ${KITE_API_BASE_URL:https://api.kite.trade}
     login-base-url: ${KITE_LOGIN_BASE_URL:https://kite.zerodha.com}
     websocket-base-url: ${KITE_WEBSOCKET_BASE_URL:wss://ws.kite.trade}
+    session-encryption-key: ${KITE_SESSION_ENCRYPTION_KEY:}

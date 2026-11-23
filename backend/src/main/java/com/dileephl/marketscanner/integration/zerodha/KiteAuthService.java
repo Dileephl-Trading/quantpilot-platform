@@ -54,7 +54,8 @@ public class KiteAuthService {
         }
         return new KiteIntegrationStatus("ZERODHA_KITE", state, properties.isMarketDataEnabled(),
                 properties.hasApiKey(), properties.hasApiSecret(), hasCurrentAccessToken(),
-                properties.getRedirectUrl(), properties.isOrderRoutingEnabled() ? "CONFIGURED_BUT_GATED" : "DISABLED", nextStep);
+                properties.getRedirectUrl(), properties.isOrderRoutingEnabled() ? "CONFIGURED_BUT_GATED" : "DISABLED", nextStep,
+                null);
     }
 
     public String loginUrl() {
