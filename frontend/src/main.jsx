@@ -489,7 +489,7 @@ function KiteIntegration({ status, refresh, notify }) {
   return <section className="integration-page">
     <div className="market-tabs" role="tablist">{marketTabs.map(([key, label]) => <button key={key} role="tab" aria-selected={marketTab === key} className={marketTab === key ? 'market-tab active' : 'market-tab'} onClick={() => setMarketTab(key)}>{label}</button>)}</div>
     <section className="safety-banner"><div className="safety-icon">◌</div><div><strong>Market data and broker routing are separately gated.</strong><p>Order placement, modification, and cancellation are available only from the Execution screen after every explicit safety gate passes.</p></div></section>
-    <div className="integration-grid">
+    {marketTab === 'connection' && <div className="integration-grid">
       <section className="panel integration-card">
         <div className="panel-heading"><div><p className="eyebrow">ZERODHA KITE CONNECT</p><h2>{status?.state?.replaceAll('_', ' ') || 'Checking configuration'}</h2></div><span className={`badge ${configured ? 'green' : 'blue'}`}>{status?.executionState || 'DISABLED'}</span></div>
         <div className="integration-rows">
@@ -502,8 +502,8 @@ function KiteIntegration({ status, refresh, notify }) {
         <div className="integration-actions"><button className="ghost" onClick={refresh}>↻ Refresh state</button><button className="primary" onClick={connectKite} disabled={loadingUrl || !status?.apiKeyConfigured || !status?.apiSecretConfigured}>{loadingUrl ? 'Opening Kite…' : 'Connect Kite'}</button></div>
       </section>
       <aside className="panel journal-help"><p className="eyebrow">SAFE ACTIVATION PATH</p><h2>What happens after purchase</h2><ol><li>Add credentials only to your uncommitted local <b>.env</b> file.</li><li>Use Kite login to create that day’s session token.</li><li>Verify instrument import and a historical-candle request.</li><li>Enable live WebSocket data only after both tests pass.</li></ol><p>API secret and access token never appear in this page or in browser storage.</p></aside>
-    </div>
-    <section className="panel verification-card">
+    </div>}
+    {marketTab === 'symbols' && <section className="panel verification-card">
       <div className="panel-heading"><div><p className="eyebrow">READ-ONLY DATA VERIFICATION</p><h2>Sync symbols and inspect completed candles</h2><p>Only NSE cash equities are stored locally in this phase. No order can be created from this screen.</p></div><span className={`badge ${marketDataReady ? 'green' : 'blue'}`}>{marketDataReady ? 'Ready to verify' : 'Data disabled'}</span></div>
       {!marketDataReady && <p className="verification-warning">Enable <code>KITE_MARKET_DATA_ENABLED=true</code> in your local <code>.env</code>, restart, then connect Kite again before using these controls.</p>}
       <div className="verification-actions"><button className="primary" onClick={syncInstruments} disabled={!marketDataReady || syncing}>{syncing ? 'Syncing symbols…' : 'Sync NSE cash symbols'}</button>{syncResult && <span className="sync-result">Last sync: {syncResult.savedInstruments} symbols</span>}</div>
@@ -515,7 +515,7 @@ function KiteIntegration({ status, refresh, notify }) {
       {verification && <div className="verification-result"><div><span>Completed candles</span><strong>{verification.count}</strong></div><div><span>Scanner result</span><strong>{verification.signal.type}</strong></div><div><span>Reference price</span><strong>{money(verification.signal.referencePrice)}</strong></div><p>{verification.signal.reasons?.join(' · ')}</p></div>}
     </section>}
     {marketTab === 'live' && <LiveStream selected={selected} marketDataReady={marketDataReady} notify={notify} />}
-    {marketTab === 'rules' && <ScannerSettings marketDataReady={marketDataReady} notify={notify} />
+    {marketTab === 'rules' && <ScannerSettings marketDataReady={marketDataReady} notify={notify} />}
     <section className="panel contract-card"><p className="eyebrow">IMPLEMENTED CONTRACTS</p><h2>Ready for credential-backed verification</h2><div className="contract-grid"><div><strong>GET /instruments</strong><span>Downloads the published instrument CSV.</span></div><div><strong>GET /instruments/historical/:token/:interval</strong><span>Retrieves historical candles into provider-neutral candle objects.</span></div><div><strong>Kite OAuth session flow</strong><span>Builds the login URL and SHA-256 session checksum.</span></div></div></section>
   </section>
 }
