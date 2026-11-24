@@ -18,8 +18,11 @@ import com.dileephl.marketscanner.service.SignalEngine.Candle;
 import com.dileephl.marketscanner.service.SignalEngine.TradeSignal;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.time.LocalTime;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -98,8 +101,24 @@ public class LiveMarketService {
 
     @Transactional(readOnly = true)
     public List<LiveWatchlistView> watchlist() {
+        return currentSessionEntries().stream().map(LiveWatchlistView::from).toList();
+    }
+
+    private List<WatchlistEntryEntity> currentSessionEntries() {
+        LocalDate today = OffsetDateTime.now(INDIA_OFFSET).toLocalDate();
         return watchlistRepository.findByProviderAndEnabledTrueOrderBySymbolAsc(liveFeed.providerName()).stream()
-                .map(LiveWatchlistView::from).toList();
+                .filter(entry -> entry.getAddedAt() != null
+                        && entry.getAddedAt().toInstant().atZone(INDIA_OFFSET).toLocalDate().equals(today))
+                .toList();
+    }
+
+    @Scheduled(fixedDelay = 30000)
+    public synchronized void stopAfterSession() {
+        if ("CONNECTED".equalsIgnoreCase(liveFeed.status().state()) && !marketSessionService.isOpenNow()) {
+            liveFeed.stop();
+            symbolsByToken.clear();
+            candlesBySymbol.clear();
+        }
     }
 
     public synchronized LiveFeedStatus start() {
@@ -107,7 +126,7 @@ public class LiveMarketService {
             throw new IllegalStateException("Live monitoring is available only during the NSE cash session: "
                     + marketSessionService.status().reason());
         }
-        List<WatchlistEntryEntity> entries = watchlistRepository.findByProviderAndEnabledTrueOrderBySymbolAsc(liveFeed.providerName());
+        List<WatchlistEntryEntity> entries = currentSessionEntries();
         if (entries.isEmpty()) throw new IllegalStateException("Add at least one synced symbol to the live watchlist first");
         aggregator.reset();
         symbolsByToken.clear(); candlesBySymbol.clear();
@@ -147,6 +166,22 @@ public class LiveMarketService {
 
     @Transactional(readOnly = true)
     public List<LiveCandleView> recentCandles() { return candleRepository.findTop100ByOrderByCandleStartDesc().stream().map(LiveCandleView::from).toList(); }
+
+    @Transactional(readOnly = true)
+    public List<LiveSignalView> historySignals(int days) {
+        int safeDays = Math.max(1, Math.min(days, 7));
+        OffsetDateTime cutoff = OffsetDateTime.now(INDIA_OFFSET).minusDays(safeDays);
+        return signalRepository.findByGeneratedAtAfterOrderByGeneratedAtDesc(cutoff).stream()
+                .map(LiveSignalView::from).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<LiveCandleView> historyCandles(int days) {
+        int safeDays = Math.max(1, Math.min(days, 7));
+        OffsetDateTime cutoff = OffsetDateTime.now(INDIA_OFFSET).minusDays(safeDays);
+        return candleRepository.findByGeneratedAtAfterOrderByGeneratedAtDesc(cutoff).stream()
+                .map(LiveCandleView::from).toList();
+    }
 
     private synchronized void acceptTick(LiveMarketTick tick) {
         if (!marketSessionService.isOpen(tick.timestamp())) return;
