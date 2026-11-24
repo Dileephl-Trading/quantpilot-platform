@@ -3,7 +3,6 @@ name: Publish QuantPilot Images
 on:
   push:
     branches:
-      - dev
       - main
 
 permissions:
