@@ -202,3 +202,14 @@ body { min-width: 320px; }
   .market-tab { white-space:nowrap; padding:10px 12px; }
   .history-grid { grid-template-columns:1fr; }
 }
+
+
+.live-search { display:flex; gap:10px; align-items:center; margin:18px 0 10px; }
+.live-search input { flex:1; min-width:220px; }
+.live-search-results { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px; margin:0 0 14px; }
+.live-search-result { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border:1px solid var(--app-line); border-radius:12px; background:var(--app-surface-deep); }
+.live-search-result small { display:block; color:var(--app-muted); margin-top:4px; }
+@media (max-width: 720px) {
+  .live-search { align-items:stretch; flex-direction:column; }
+  .live-search button { width:100%; }
+}
