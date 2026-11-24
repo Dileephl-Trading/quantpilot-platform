@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
-
 :root { font-family: Manrope, Arial, sans-serif; color: #eaf1fb; background: #07111f; font-synthesis: none; }
 * { box-sizing: border-box; } body { margin: 0; min-width: 320px; background: #07111f; } button, input, select { font: inherit; } button { cursor: pointer; }
 .app-shell { min-height: 100vh; display: flex; background: radial-gradient(circle at 75% -10%, #113356 0, transparent 28rem), #07111f; }
