@@ -25,14 +25,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.GZIPInputStream;
 
-/**
- * Read-only implementation of Kite's documented market-data contracts. It deliberately contains
- * no order placement, modification, cancellation, or position-changing method.
- */
 @Component
 public class KiteMarketDataProvider implements MarketDataProvider {
-    private static final DateTimeFormatter KITE_CANDLE_TIMESTAMP =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ");
+    private static final DateTimeFormatter KITE_CANDLE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ");
     private final KiteConnectProperties properties;
     private final KiteAuthService kiteAuthService;
     private final ObjectMapper objectMapper;
@@ -54,8 +49,7 @@ public class KiteMarketDataProvider implements MarketDataProvider {
     public String providerName() { return "ZERODHA_KITE"; }
 
     @Override
-    public List<Candle> historicalCandles(long instrumentToken, CandleInterval interval,
-                                         OffsetDateTime from, OffsetDateTime to) {
+    public List<Candle> historicalCandles(long instrumentToken, CandleInterval interval, OffsetDateTime from, OffsetDateTime to) {
         if (instrumentToken <= 0 || from == null || to == null || !to.isAfter(from)) {
             throw new IllegalArgumentException("Instrument token and a valid time window are required");
         }
@@ -64,9 +58,7 @@ public class KiteMarketDataProvider implements MarketDataProvider {
                 .path("/instruments/historical/{token}/{interval}")
                 .queryParam("from", from.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
                 .queryParam("to", to.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
-                .buildAndExpand(instrumentToken, interval.providerValue())
-                .encode()
-                .toUri();
+                .buildAndExpand(instrumentToken, interval.providerValue()).encode().toUri();
         JsonNode root = executeJson(uri);
         JsonNode candles = root.path("data").path("candles");
         if (!candles.isArray()) throw new IllegalStateException("Kite historical response did not contain data.candles");
@@ -77,21 +69,16 @@ public class KiteMarketDataProvider implements MarketDataProvider {
                     decimal(row, 1), decimal(row, 2), decimal(row, 3), decimal(row, 4), row.get(5).asLong()));
         }
         OffsetDateTime now = OffsetDateTime.now(from.getOffset());
-        return result.stream()
-                .filter(candle -> !candle.timestamp().plus(interval.candleDuration()).isAfter(now))
-                .toList();
+        return result.stream().filter(candle -> !candle.timestamp().plus(interval.candleDuration()).isAfter(now)).toList();
     }
 
-    /** Fetches Kite's instrument CSV exactly as published. */
     @Override
     public String instrumentMasterCsv() {
         requireEnabledCredentials();
         HttpRequest request = HttpRequest.newBuilder(URI.create(properties.getApiBaseUrl() + "/instruments"))
                 .header("X-Kite-Version", "3")
                 .header("Authorization", "token " + properties.getApiKey() + ":" + kiteAuthService.currentAccessToken())
-                .header("Accept", "text/csv")
-                .timeout(java.time.Duration.ofSeconds(20))
-                .GET().build();
+                .header("Accept", "text/csv").timeout(java.time.Duration.ofSeconds(20)).GET().build();
         try {
             HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
             ensureSuccess(response.statusCode());
@@ -119,11 +106,9 @@ public class KiteMarketDataProvider implements MarketDataProvider {
     }
 
     private HttpRequest.Builder baseRequest(URI uri) {
-        return HttpRequest.newBuilder(uri)
-                .header("X-Kite-Version", "3")
+        return HttpRequest.newBuilder(uri).header("X-Kite-Version", "3")
                 .header("Authorization", "token " + properties.getApiKey() + ":" + kiteAuthService.currentAccessToken())
-                .header("Accept", "application/json")
-                .timeout(java.time.Duration.ofSeconds(10));
+                .header("Accept", "application/json").timeout(java.time.Duration.ofSeconds(10));
     }
 
     private BigDecimal decimal(JsonNode row, int index) { return row.get(index).decimalValue(); }
@@ -136,19 +121,14 @@ public class KiteMarketDataProvider implements MarketDataProvider {
     }
 
     private String decodeCsv(HttpResponse<byte[]> response) {
-        boolean gzip = response.headers().firstValue("Content-Encoding")
-                .map(value -> value.toLowerCase().contains("gzip")).orElse(false);
-        try (InputStream input = gzip ? new GZIPInputStream(new ByteArrayInputStream(response.body()))
-                : new ByteArrayInputStream(response.body())) {
+        boolean gzip = response.headers().firstValue("Content-Encoding").map(value -> value.toLowerCase().contains("gzip")).orElse(false);
+        try (InputStream input = gzip ? new GZIPInputStream(new ByteArrayInputStream(response.body())) : new ByteArrayInputStream(response.body())) {
             return new String(input.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException error) {
-            throw new UncheckedIOException("Unable to decode Kite instrument-master response", error);
-        }
+        } catch (IOException error) { throw new UncheckedIOException("Unable to decode Kite instrument-master response", error); }
     }
 
     private void ensureSuccess(int statusCode) {
-        if (statusCode < 200 || statusCode >= 300) {
-            throw new IllegalStateException("Kite market-data request failed with HTTP " + statusCode);
-        }
+        if (statusCode == 401 || statusCode == 403) kiteAuthService.markInvalid();
+        if (statusCode < 200 || statusCode >= 300) throw new IllegalStateException("Kite market-data request failed with HTTP " + statusCode);
     }
 }
