@@ -426,6 +426,7 @@ function KiteIntegration({ status, refresh, notify }) {
   const [tradeDate, setTradeDate] = useState(() => new Date().toLocaleDateString('en-CA'))
   const [verifying, setVerifying] = useState(false)
   const [verification, setVerification] = useState(null)
+  const [marketTab, setMarketTab] = useState('connection')
   async function connectKite() {
     setLoadingUrl(true)
     try {
@@ -484,7 +485,9 @@ function KiteIntegration({ status, refresh, notify }) {
   }
 
   const configured = status?.state === 'READY_FOR_MARKET_DATA'
+  const marketTabs = [['connection', 'Connection'], ['symbols', 'Symbols & candles'], ['live', 'Live monitor'], ['rules', 'Scanner rules']]
   return <section className="integration-page">
+    <div className="market-tabs" role="tablist">{marketTabs.map(([key, label]) => <button key={key} role="tab" aria-selected={marketTab === key} className={marketTab === key ? 'market-tab active' : 'market-tab'} onClick={() => setMarketTab(key)}>{label}</button>)}</div>
     <section className="safety-banner"><div className="safety-icon">◌</div><div><strong>Market data and broker routing are separately gated.</strong><p>Order placement, modification, and cancellation are available only from the Execution screen after every explicit safety gate passes.</p></div></section>
     <div className="integration-grid">
       <section className="panel integration-card">
@@ -508,11 +511,11 @@ function KiteIntegration({ status, refresh, notify }) {
         <form className="symbol-search" onSubmit={searchInstruments}><Field label="Search synced NSE symbol"><input value={symbolQuery} placeholder="SBIN" onChange={event => setSymbolQuery(event.target.value.toUpperCase())} /></Field><Field label="Sector filter"><select value={sectorFilter} onChange={event => setSectorFilter(event.target.value)}><option value="">All sectors</option><option value="BANKING">Banking</option><option value="IT">IT</option><option value="AUTO">Auto</option><option value="ENERGY">Energy</option><option value="PHARMA">Pharma</option><option value="FMCG">FMCG</option><option value="OTHER">Other</option></select></Field><button className="ghost" disabled={!marketDataReady}>Search</button></form>
         <div className="instrument-results">{instruments.length === 0 ? <span>Sync first, then search by symbol.</span> : instruments.map(item => <button key={item.instrumentToken} className={selected?.instrumentToken === item.instrumentToken ? 'instrument-option selected' : 'instrument-option'} onClick={() => setSelected(item)}><strong>{item.tradingsymbol}</strong><span>{item.sector || 'OTHER'} · {item.name || item.segment} · token {item.instrumentToken}</span></button>)}</div>
       </div>
-      {selected && <div className="historical-check"><div><p className="eyebrow">HISTORICAL CHECK</p><strong>{selected.tradingsymbol}</strong><span> · 5-minute completed candles</span></div><label className="date-field">Trading date<input type="date" value={tradeDate} onChange={event => setTradeDate(event.target.value)} /></label><button className="primary" onClick={verifyHistorical} disabled={verifying}>{verifying ? 'Fetching…' : 'Fetch and evaluate'}</button></div>}
+      {selected && <div className="historical-check"><div><p className="eyebrow">SELECTED SYMBOL</p><strong>{selected.tradingsymbol}</strong><span> · {selected.sector || 'OTHER'} · ready for monitoring</span></div><div className="historical-actions"><button className="ghost" onClick={async () => { try { const response = await fetch(apiBase + '/api/v1/live-market/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrumentToken: selected.instrumentToken }) }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || 'Could not add symbol to live monitor'); notify({ tone: 'success', text: selected.tradingsymbol + ' added to Live monitor.' }) } catch (error) { notify({ tone: 'error', text: error.message }) } }}>Add to Live monitor</button><label className="date-field">Trading date<input type="date" value={tradeDate} onChange={event => setTradeDate(event.target.value)} /></label><button className="primary" onClick={verifyHistorical} disabled={verifying}>{verifying ? 'Fetching…' : 'Fetch and evaluate'}</button></div></div>}
       {verification && <div className="verification-result"><div><span>Completed candles</span><strong>{verification.count}</strong></div><div><span>Scanner result</span><strong>{verification.signal.type}</strong></div><div><span>Reference price</span><strong>{money(verification.signal.referencePrice)}</strong></div><p>{verification.signal.reasons?.join(' · ')}</p></div>}
-    </section>
-    <LiveStream selected={selected} marketDataReady={marketDataReady} notify={notify} />
-    <ScannerSettings marketDataReady={marketDataReady} notify={notify} />
+    </section>}
+    {marketTab === 'live' && <LiveStream selected={selected} marketDataReady={marketDataReady} notify={notify} />}
+    {marketTab === 'rules' && <ScannerSettings marketDataReady={marketDataReady} notify={notify} />
     <section className="panel contract-card"><p className="eyebrow">IMPLEMENTED CONTRACTS</p><h2>Ready for credential-backed verification</h2><div className="contract-grid"><div><strong>GET /instruments</strong><span>Downloads the published instrument CSV.</span></div><div><strong>GET /instruments/historical/:token/:interval</strong><span>Retrieves historical candles into provider-neutral candle objects.</span></div><div><strong>Kite OAuth session flow</strong><span>Builds the login URL and SHA-256 session checksum.</span></div></div></section>
   </section>
 }
@@ -544,6 +547,7 @@ function LiveStream({ selected, marketDataReady, notify }) {
   const [candles, setCandles] = useState([])
   const [busy, setBusy] = useState(false)
   const [groups, setGroups] = useState([])
+  const [history, setHistory] = useState({ signals: [], candles: [] })
 
   async function api(path, options) {
     const response = await fetch(`${apiBase}${path}`, options)
@@ -553,14 +557,14 @@ function LiveStream({ selected, marketDataReady, notify }) {
   }
   async function refresh() {
     try {
-      const [nextStatus, nextWatchlist, nextSignals, nextCandles] = await Promise.all([api('/api/v1/live-market/status'), api('/api/v1/live-market/watchlist'), api('/api/v1/live-market/signals'), api('/api/v1/live-market/candles')])
-      setStatus(nextStatus); setWatchlist(nextWatchlist); setSignals(nextSignals); setCandles(nextCandles)
+      const [nextStatus, nextWatchlist, nextSignals, nextCandles, nextHistory] = await Promise.all([api('/api/v1/live-market/status'), api('/api/v1/live-market/watchlist'), api('/api/v1/live-market/signals'), api('/api/v1/live-market/candles'), api('/api/v1/live-market/history?days=7')])
+      setStatus(nextStatus); setWatchlist(nextWatchlist); setSignals(nextSignals); setCandles(nextCandles); setHistory(nextHistory)
     } catch (error) { notify({ tone: 'error', text: error.message }) }
   }
   useEffect(() => { refresh() }, [])
   useEffect(() => {
     if (!marketDataReady) return
-    fetch(`${apiBase}/api/v1/market-data/groups`).then(response => response.json()).then(data => setGroups(Object.keys(data).filter(group => group !== 'banking'))).catch(() => setGroups([]))
+    setGroups(['banking', 'bank-nifty', 'it', 'energy', 'auto', 'pharma', 'fmcg'])
   }, [marketDataReady])
   useEffect(() => {
     if (status?.state !== 'CONNECTED') return undefined
@@ -602,6 +606,7 @@ function LiveStream({ selected, marketDataReady, notify }) {
     <div className="live-grid"><div><span>Watchlist and latest ticks · {watchlist.length} symbols</span>{watchlist.length === 0 ? <p>No selected symbols yet.</p> : <ul>{watchlist.map(item => <li key={item.instrumentToken}><div><strong>{item.symbol}</strong><small>{status?.latestPrices?.[item.instrumentToken] ? `${money(status.latestPrices[item.instrumentToken])} · tick ${status.lastTickAt ? new Date(status.lastTickAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'pending'}` : 'Waiting for first tick'}</small></div><button className="watchlist-remove" onClick={() => removeSymbol(item.instrumentToken, item.symbol)} disabled={busy || connected}>Remove</button></li>)}</ul>}{connected && watchlist.length > 0 && <small className="watchlist-note">Stop the monitor before removing symbols.</small>}</div><div><span>Signal history · actionable only</span>{signals.length === 0 ? <p>{connected ? 'No actionable signal yet. Completed NO_TRADE evaluations are shown below.' : 'Start the monitor after adding symbols.'}</p> : <ul>{signals.slice(0, 20).map(signal => <li key={`${signal.instrumentToken}-${signal.candleStart}`} className={signal.type === 'WATCH_LONG' ? 'long-signal' : 'short-signal'}><strong>{signal.symbol} · {signal.type}</strong><small>{money(signal.referencePrice)} · {new Date(signal.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></li>)}</ul>}</div></div>
     <div className="candle-panel"><div className="candle-heading"><span>Completed live candles</span><small>{candles.length ? 'Latest candles are shown first' : 'No completed live candle received in this run'}</small></div>{candles.length === 0 ? <p className="empty-candles">The first row appears after the next five-minute boundary receives a tick.</p> : <div className="candle-table-wrap"><table className="candle-table"><thead><tr><th>Symbol / time</th><th>OHLC</th><th>Volume</th><th>Evaluation</th><th>VWAP</th></tr></thead><tbody>{candles.slice(0, 20).map(candle => <tr key={`${candle.instrumentToken}-${candle.candleStart}`}><td><strong>{candle.symbol}</strong><small>{new Date(candle.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></td><td>{money(candle.open)} / {money(candle.high)} / {money(candle.low)} / {money(candle.close)}</td><td>{candle.volume.toLocaleString()}</td><td><span className={`candle-evaluation ${candle.evaluationType === 'WATCH_LONG' ? 'long-signal' : candle.evaluationType === 'WATCH_SHORT' ? 'short-signal' : ''}`}>{candle.evaluationType}</span></td><td>{candle.vwap ? money(candle.vwap) : '—'}</td></tr>)}</tbody></table></div>}</div>
     {status?.lastError && <p className="live-error">{status.lastError}</p>}
+    <details className="monitor-history"><summary>Last 7 days · persisted monitor history ({history.signals?.length || 0} signals, {history.candles?.length || 0} candles)</summary><div className="history-grid"><div><strong>Signals</strong>{history.signals?.length ? <ul>{history.signals.slice(0, 30).map(item => <li key={item.instrumentToken + '-' + item.candleStart}><b>{item.symbol} · {item.type}</b><small>{new Date(item.candleStart).toLocaleString()}</small></li>)}</ul> : <p>No signal history.</p>}</div><div><strong>Completed candles</strong><p>{history.candles?.length || 0} persisted candle evaluations are retained for review. Older records remain stored and are outside this seven-day view.</p></div></div></details>
   </section>
 }
 
