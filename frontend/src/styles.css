@@ -218,6 +218,13 @@ body { min-width: 320px; }
    watchlists, search results, history and candle tables scroll inside their
    own bounded surfaces. */
 html, body, #root { max-width: 100%; overflow-x: hidden; }
+.app-shell { min-width: 0; }
+.main-content { flex: 1 1 auto; min-width: 0; overflow-x: hidden; }
+.app-shell .MuiCardContent-root,
+.app-shell .MuiPaper-root,
+.app-shell .MuiFormControl-root,
+.app-shell .MuiTextField-root { min-width: 0; }
+.app-shell .MuiTableContainer-root { max-width: 100%; }
 .main-content { min-width: 0; overflow-x: clip; }
 .integration-page { min-width: 0; overflow-x: clip; }
 .integration-page .MuiCardContent-root { min-width: 0; }
