@@ -1,8 +1,34 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { Alert, Box, Button, Card, CardContent, Chip, Divider, Paper, Stack, Step, StepLabel, Stepper, Switch, Tab, Tabs, TextField, ThemeProvider, Typography, createTheme } from '@mui/material'
 import './styles.css'
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || ''
+
+const marketTheme = createTheme({
+  palette: {
+    mode: 'light',
+    primary: { main: '#078f9f' },
+    secondary: { main: '#6750a4' },
+    success: { main: '#16866f' },
+    warning: { main: '#b56b00' },
+    background: { default: '#edf2f8', paper: '#f8faff' },
+    text: { primary: '#223451', secondary: '#667793' }
+  },
+  shape: { borderRadius: 16 },
+  typography: {
+    fontFamily: 'Inter, Manrope, Arial, sans-serif',
+    h4: { fontWeight: 800, letterSpacing: '-.03em' },
+    h5: { fontWeight: 800, letterSpacing: '-.025em' },
+    h6: { fontWeight: 750, letterSpacing: '-.02em' }
+  },
+  components: {
+    MuiCard: { styleOverrides: { root: { border: '1px solid rgba(108, 128, 158, .18)', boxShadow: '0 18px 45px rgba(43, 66, 99, .12)' } } },
+    MuiButton: { defaultProps: { disableElevation: true }, styleOverrides: { root: { borderRadius: 11, textTransform: 'none', fontWeight: 750, minHeight: 42 } } },
+    MuiTextField: { defaultProps: { size: 'small' } },
+    MuiChip: { styleOverrides: { root: { fontWeight: 700 } } }
+  }
+})
 
 const initialOrder = {
   symbol: 'SBIN',
@@ -346,10 +372,6 @@ function AuditLog({ notify }) {
     } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setLoading(false) }
   }
   useEffect(() => { refresh() }, [])
-  useEffect(() => {
-    if (!marketDataReady) { setHasSyncedSymbols(false); return }
-    api('/api/v1/market-data/instruments?query=').then(items => setHasSyncedSymbols(Array.isArray(items) && items.length > 0)).catch(() => setHasSyncedSymbols(false))
-  }, [marketDataReady])
   return <section className="audit-page"><section className="panel table-panel"><div className="panel-heading"><div><p className="eyebrow">DURABLE SAFETY TRAIL</p><h2>Recent events</h2><p>Order attempts, safeguards, kill-switch changes, and reconciliation events are stored in PostgreSQL.</p></div><button className="ghost" onClick={refresh} disabled={loading}>↻ Refresh</button></div>
     {events.length === 0 ? <p className="empty">No audit events recorded.</p> : <div className="trade-table-wrap"><table><thead><tr><th>Time</th><th>Event</th><th>Aggregate</th><th>Details</th></tr></thead><tbody>{events.map((event, index) => <tr key={`${event.occurredAt}-${index}`}><td>{event.occurredAt ? new Date(event.occurredAt).toLocaleString() : '—'}</td><td><strong>{event.eventType}</strong></td><td>{event.aggregateType}<small>{event.aggregateId}</small></td><td className="audit-details">{event.details}</td></tr>)}</tbody></table></div>}
   </section></section>
@@ -431,6 +453,8 @@ function KiteIntegration({ status, refresh, notify }) {
   const [verifying, setVerifying] = useState(false)
   const [verification, setVerification] = useState(null)
   const [marketTab, setMarketTab] = useState('connection')
+  const [hasSyncedSymbols, setHasSyncedSymbols] = useState(null)
+  const [symbolMessage, setSymbolMessage] = useState('')
   async function connectKite() {
     setLoadingUrl(true)
     try {
@@ -445,6 +469,14 @@ function KiteIntegration({ status, refresh, notify }) {
 
   const marketDataReady = status?.marketDataEnabled && status?.accessTokenConfigured
 
+  useEffect(() => {
+    if (!marketDataReady) { setHasSyncedSymbols(false); return }
+    fetch(`${apiBase}/api/v1/market-data/instruments?query=`)
+      .then(response => response.ok ? response.json() : [])
+      .then(items => setHasSyncedSymbols(Array.isArray(items) && items.length > 0))
+      .catch(() => setHasSyncedSymbols(false))
+  }, [marketDataReady])
+
   async function syncInstruments() {
     setSyncing(true)
     try {
@@ -452,12 +484,17 @@ function KiteIntegration({ status, refresh, notify }) {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || 'Instrument sync failed')
       setSyncResult(data)
+      setHasSyncedSymbols(true)
       notify({ tone: 'success', text: `${data.savedInstruments} NSE cash symbols synced locally.` })
     } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setSyncing(false) }
   }
 
   async function searchInstruments(event) {
     event.preventDefault()
+    if (!marketDataReady) { setSymbolMessage('Connect Kite first. Symbol search uses the synced Kite instrument catalogue.'); return }
+    if (hasSyncedSymbols === false) { setSymbolMessage('Please sync NSE symbols first, then search by symbol or sector.'); return }
+    if (hasSyncedSymbols === null) { setSymbolMessage('Checking the local symbol catalogue…'); return }
+    setSymbolMessage('')
     try {
       const response = await fetch(`${apiBase}/api/v1/market-data/instruments?query=${encodeURIComponent(symbolQuery.trim())}&sector=${encodeURIComponent(sectorFilter)}`)
       const data = await response.json().catch(() => [])
@@ -488,40 +525,66 @@ function KiteIntegration({ status, refresh, notify }) {
     } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setVerifying(false) }
   }
 
+  async function addSelectedToMonitor() {
+    if (!selected) return
+    try {
+      const response = await fetch(`${apiBase}/api/v1/live-market/watchlist`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instrumentToken: selected.instrumentToken })
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'Could not add symbol to live monitor')
+      notify({ tone: 'success', text: `${selected.tradingsymbol} added to Live monitor.` })
+    } catch (error) { notify({ tone: 'error', text: error.message }) }
+  }
+
   const configured = status?.state === 'READY_FOR_MARKET_DATA'
   const marketTabs = [['connection', 'Connection'], ['symbols', 'Symbols & candles'], ['live', 'Live monitor'], ['rules', 'Scanner rules']]
-  return <section className="integration-page">
-    <div className="market-tabs" role="tablist">{marketTabs.map(([key, label]) => <button key={key} role="tab" aria-selected={marketTab === key} className={marketTab === key ? 'market-tab active' : 'market-tab'} onClick={() => setMarketTab(key)}>{label}</button>)}</div>
-    <section className="safety-banner"><div className="safety-icon">◌</div><div><strong>Market data and broker routing are separately gated.</strong><p>Order placement, modification, and cancellation are available only from the Execution screen after every explicit safety gate passes.</p></div></section>
-    {marketTab === 'connection' && <div className="integration-grid">
-      <section className="panel integration-card">
-        <div className="panel-heading"><div><p className="eyebrow">ZERODHA KITE CONNECT</p><h2>{status?.state?.replaceAll('_', ' ') || 'Checking configuration'}</h2></div><span className={`badge ${configured ? 'green' : 'blue'}`}>{status?.executionState || 'DISABLED'}</span></div>
-        <div className="integration-rows">
-          <IntegrationRow label="API key" value={status?.apiKeyConfigured ? 'Configured locally' : 'Not configured'} ok={status?.apiKeyConfigured} />
-          <IntegrationRow label="API secret" value={status?.apiSecretConfigured ? 'Configured locally' : 'Not configured'} ok={status?.apiSecretConfigured} />
-          <IntegrationRow label="Session token" value={status?.accessTokenConfigured ? 'Connected for current run' : 'Not connected for today'} ok={status?.accessTokenConfigured} />
-          <IntegrationRow label="Live market data" value={status?.marketDataEnabled ? 'Explicitly enabled' : 'Disabled'} ok={status?.marketDataEnabled} />
-        </div>
-        <div className="integration-next"><span>Next step</span><strong>{status?.nextStep || 'Loading local connection state…'}</strong></div>
-        <div className="integration-actions"><button className="ghost" onClick={refresh}>↻ Refresh state</button><button className="primary" onClick={connectKite} disabled={loadingUrl || !status?.apiKeyConfigured || !status?.apiSecretConfigured}>{loadingUrl ? 'Opening Kite…' : 'Connect Kite'}</button></div>
-      </section>
-      <aside className="panel journal-help"><p className="eyebrow">SAFE ACTIVATION PATH</p><h2>What happens after purchase</h2><ol><li>Add credentials only to your uncommitted local <b>.env</b> file.</li><li>Use Kite login to create that day’s session token.</li><li>Verify instrument import and a historical-candle request.</li><li>Enable live WebSocket data only after both tests pass.</li></ol><p>API secret and access token never appear in this page or in browser storage.</p></aside>
-    </div>}
-    {marketTab === 'symbols' && <section className="panel verification-card">
-      <div className="panel-heading"><div><p className="eyebrow">READ-ONLY DATA VERIFICATION</p><h2>Sync symbols and inspect completed candles</h2><p>Only NSE cash equities are stored locally in this phase. No order can be created from this screen.</p></div><span className={`badge ${marketDataReady ? 'green' : 'blue'}`}>{marketDataReady ? 'Ready to verify' : 'Data disabled'}</span></div>
-      {!marketDataReady && <p className="verification-warning">Enable <code>KITE_MARKET_DATA_ENABLED=true</code> in your local <code>.env</code>, restart, then connect Kite again before using these controls.</p>}
-      <div className="verification-actions"><button className="primary" onClick={syncInstruments} disabled={!marketDataReady || syncing}>{syncing ? 'Syncing symbols…' : 'Sync NSE cash symbols'}</button>{syncResult && <span className="sync-result">Last sync: {syncResult.savedInstruments} symbols</span>}</div>
-      <div className="symbol-workspace">
-        <form className="symbol-search" onSubmit={searchInstruments}><Field label="Search synced NSE symbol"><input value={symbolQuery} placeholder="SBIN" onChange={event => setSymbolQuery(event.target.value.toUpperCase())} /></Field><Field label="Sector filter"><select value={sectorFilter} onChange={event => setSectorFilter(event.target.value)}><option value="">All sectors</option><option value="BANKING">Banking</option><option value="IT">IT</option><option value="AUTO">Auto</option><option value="ENERGY">Energy</option><option value="PHARMA">Pharma</option><option value="FMCG">FMCG</option><option value="OTHER">Other</option></select></Field><button className="ghost" disabled={!marketDataReady}>Search</button></form>
-        <div className="instrument-results">{instruments.length === 0 ? <span>Sync first, then search by symbol.</span> : instruments.map(item => <button key={item.instrumentToken} className={selected?.instrumentToken === item.instrumentToken ? 'instrument-option selected' : 'instrument-option'} onClick={() => setSelected(item)}><strong>{item.tradingsymbol}</strong><span>{item.sector || 'OTHER'} · {item.name || item.segment} · token {item.instrumentToken}</span></button>)}</div>
-      </div>
-      {selected && <div className="historical-check"><div><p className="eyebrow">SELECTED SYMBOL</p><strong>{selected.tradingsymbol}</strong><span> · {selected.sector || 'OTHER'} · ready for monitoring</span></div><div className="historical-actions"><button className="ghost" onClick={async () => { try { const response = await fetch(apiBase + '/api/v1/live-market/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrumentToken: selected.instrumentToken }) }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || 'Could not add symbol to live monitor'); notify({ tone: 'success', text: selected.tradingsymbol + ' added to Live monitor.' }) } catch (error) { notify({ tone: 'error', text: error.message }) } }}>Add to Live monitor</button><label className="date-field">Trading date<input type="date" value={tradeDate} onChange={event => setTradeDate(event.target.value)} /></label><button className="primary" onClick={verifyHistorical} disabled={verifying || !marketDataReady}>{verifying ? 'Fetching…' : 'Fetch and evaluate'}</button></div></div>}
-      {verification && <div className="verification-result"><div><span>Completed candles</span><strong>{verification.count}</strong></div><div><span>Scanner result</span><strong>{verification.signal.type}</strong></div><div><span>Reference price</span><strong>{money(verification.signal.referencePrice)}</strong></div><p>{verification.signal.reasons?.join(' · ')}</p></div>}
-    </section>}
-    {marketTab === 'live' && <LiveStream selected={selected} marketDataReady={marketDataReady} notify={notify} onNavigate={setMarketTab} />}
-    {marketTab === 'rules' && <ScannerSettings marketDataReady={marketDataReady} notify={notify} />}
-    <section className="panel contract-card"><p className="eyebrow">IMPLEMENTED CONTRACTS</p><h2>Ready for credential-backed verification</h2><div className="contract-grid"><div><strong>GET /instruments</strong><span>Downloads the published instrument CSV.</span></div><div><strong>GET /instruments/historical/:token/:interval</strong><span>Retrieves historical candles into provider-neutral candle objects.</span></div><div><strong>Kite OAuth session flow</strong><span>Builds the login URL and SHA-256 session checksum.</span></div></div></section>
-  </section>
+  return <ThemeProvider theme={marketTheme}>
+    <Box className="integration-page" sx={{ minWidth: 0, gap: 2.5 }}>
+      <Tabs value={marketTab} onChange={(_, value) => setMarketTab(value)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile sx={{ bgcolor: 'background.paper', borderRadius: 3, px: 1, boxShadow: '0 10px 28px rgba(43,66,99,.10)' }}>
+        {marketTabs.map(([key, label]) => <Tab key={key} value={key} label={label} />)}
+      </Tabs>
+      <Alert severity="info" variant="outlined" sx={{ borderRadius: 3, bgcolor: 'rgba(232,248,251,.75)' }}>
+        <Typography variant="subtitle2" fontWeight={800}>Market data and broker routing are separately gated.</Typography>
+        <Typography variant="body2">Order placement, modification, and cancellation are available only from the Execution screen after every explicit safety gate passes.</Typography>
+      </Alert>
+
+      {marketTab === 'connection' && <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.25fr .9fr' }, gap: 2.5 }}>
+        <Card><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={2} mb={2.5}>
+            <Box><Typography variant="overline" color="text.secondary" letterSpacing=".14em">ZERODHA KITE CONNECT</Typography><Typography variant="h5">{status?.state?.replaceAll('_', ' ') || 'Checking configuration'}</Typography></Box>
+            <Chip label={status?.executionState || 'DISABLED'} color={configured ? 'success' : 'default'} size="small" />
+          </Stack>
+          <Stack divider={<Divider flexItem />}>
+            <IntegrationRow label="API key" value={status?.apiKeyConfigured ? 'Configured locally' : 'Not configured'} ok={status?.apiKeyConfigured} />
+            <IntegrationRow label="API secret" value={status?.apiSecretConfigured ? 'Configured locally' : 'Not configured'} ok={status?.apiSecretConfigured} />
+            <IntegrationRow label="Session token" value={status?.accessTokenConfigured ? 'Connected for current run' : 'Not connected for today'} ok={status?.accessTokenConfigured} />
+            <IntegrationRow label="Live market data" value={status?.marketDataEnabled ? 'Explicitly enabled' : 'Disabled'} ok={status?.marketDataEnabled} />
+          </Stack>
+          <Alert severity={status?.nextStep ? 'warning' : 'info'} sx={{ mt: 2.5, borderRadius: 2 }}>{status?.nextStep || 'Loading local connection state…'}</Alert>
+          <Stack direction="row" gap={1.5} mt={2.5} flexWrap="wrap"><Button variant="outlined" onClick={refresh}>Refresh state</Button><Button variant="contained" onClick={connectKite} disabled={loadingUrl || !status?.apiKeyConfigured || !status?.apiSecretConfigured}>{loadingUrl ? 'Opening Kite…' : 'Connect Kite'}</Button></Stack>
+        </CardContent></Card>
+        <Card><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><Typography variant="overline" color="text.secondary" letterSpacing=".14em">SAFE ACTIVATION PATH</Typography><Typography variant="h5" mb={2}>What happens after purchase</Typography><Stepper orientation="vertical" activeStep={-1}>{['Add credentials only to your uncommitted local .env file.', 'Use Kite login to create that day’s session token.', 'Verify instrument import and a historical-candle request.', 'Enable live WebSocket data only after both tests pass.'].map(step => <Step key={step}><StepLabel>{step}</StepLabel></Step>)}</Stepper><Typography variant="body2" color="text.secondary" mt={2}>API secret and access token never appear in this page or in browser storage.</Typography></CardContent></Card>
+      </Box>}
+
+      {marketTab === 'symbols' && <Card><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} mb={2.5}><Box><Typography variant="overline" color="text.secondary" letterSpacing=".14em">READ-ONLY DATA VERIFICATION</Typography><Typography variant="h5">Sync symbols and inspect completed candles</Typography><Typography variant="body2" color="text.secondary">Only synced NSE cash equities are available for search, evaluation, and live monitoring.</Typography></Box><Chip label={marketDataReady ? 'Ready to verify' : 'Kite connection required'} color={marketDataReady ? 'success' : 'warning'} /></Stack>
+        {!marketDataReady && <Alert severity="warning" sx={{ mb: 2 }}>Connect Kite first. Symbol synchronization uses Kite’s instrument master.</Alert>}
+        <Button variant="contained" onClick={syncInstruments} disabled={!marketDataReady || syncing}>{syncing ? 'Syncing symbols…' : 'Sync NSE cash symbols'}</Button>{syncResult && <Typography component="span" variant="body2" color="text.secondary" ml={2}>{syncResult.savedInstruments} symbols synced</Typography>}
+        {symbolMessage && <Alert severity={hasSyncedSymbols === false ? 'info' : 'warning'} sx={{ mt: 2 }} action={hasSyncedSymbols === false && <Button color="inherit" size="small" onClick={syncInstruments} disabled={syncing}>{syncing ? 'Syncing…' : 'Sync now'}</Button>}>{symbolMessage}</Alert>}
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '280px 1fr' }, gap: 2.5, mt: 3, pt: 3, borderTop: '1px solid rgba(108,128,158,.18)' }}>
+          <Box component="form" onSubmit={searchInstruments} sx={{ display: 'grid', gap: 1.5, alignContent: 'start' }}><TextField label="Search synced NSE symbol" value={symbolQuery} placeholder="SBIN" onChange={event => setSymbolQuery(event.target.value.toUpperCase())} /><TextField select SelectProps={{ native: true }} label="Sector filter" value={sectorFilter} onChange={event => setSectorFilter(event.target.value)}><option value="">All sectors</option><option value="BANKING">Banking</option><option value="IT">IT</option><option value="AUTO">Auto</option><option value="ENERGY">Energy</option><option value="PHARMA">Pharma</option><option value="FMCG">FMCG</option><option value="OTHER">Other</option></TextField><Button type="submit" variant="outlined" disabled={!marketDataReady}>Search symbols</Button></Box>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2,1fr)' }, gap: 1.25, alignContent: 'start', maxHeight: 330, overflowY: 'auto', pr: .5 }}>{instruments.length === 0 ? <Alert severity="info">Sync the NSE symbols first, then search here.</Alert> : instruments.map(item => <Paper key={item.instrumentToken} component="button" type="button" onClick={() => setSelected(item)} sx={{ textAlign: 'left', p: 1.5, cursor: 'pointer', border: selected?.instrumentToken === item.instrumentToken ? '2px solid #078f9f' : '1px solid rgba(108,128,158,.18)', bgcolor: 'background.paper', borderRadius: 2 }}><Typography fontWeight={800}>{item.tradingsymbol}</Typography><Typography variant="caption" color="text.secondary">{item.sector || 'OTHER'} · {item.name || item.segment}</Typography></Paper>)}</Box>
+        </Box>
+        {selected && <Paper sx={{ mt: 3, p: 2, display: 'flex', alignItems: { xs: 'stretch', md: 'flex-end' }, gap: 1.5, flexWrap: 'wrap', bgcolor: '#f2f8fb' }}><Box sx={{ mr: 'auto' }}><Typography variant="overline" color="text.secondary">SELECTED SYMBOL</Typography><Typography fontWeight={800}>{selected.tradingsymbol}</Typography><Typography variant="body2" color="text.secondary">{selected.sector || 'OTHER'} · ready for monitoring</Typography></Box><Button variant="outlined" onClick={addSelectedToMonitor}>Add to Live monitor</Button><TextField type="date" label="Trading date" InputLabelProps={{ shrink: true }} value={tradeDate} onChange={event => setTradeDate(event.target.value)} /><Button variant="contained" onClick={verifyHistorical} disabled={verifying || !marketDataReady}>{verifying ? 'Fetching…' : 'Fetch and evaluate'}</Button></Paper>}
+        {verification && <Alert severity="success" sx={{ mt: 2 }}>Completed candles: <b>{verification.count}</b> · Result: <b>{verification.signal.type}</b> · Reference: <b>{money(verification.signal.referencePrice)}</b><br />{verification.signal.reasons?.join(' · ')}</Alert>}
+      </CardContent></Card>}
+      {marketTab === 'live' && <LiveStreamMUI selected={selected} marketDataReady={marketDataReady} notify={notify} onNavigate={setMarketTab} />}
+      {marketTab === 'rules' && <ScannerSettings marketDataReady={marketDataReady} notify={notify} />}
+      {marketTab === 'connection' && <Card><CardContent><Typography variant="overline" color="text.secondary" letterSpacing=".14em">IMPLEMENTED CONTRACTS</Typography><Typography variant="h6" mb={2}>Ready for credential-backed verification</Typography><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3,1fr)' }, gap: 1.5 }}>{[['GET /instruments', 'Downloads the published instrument CSV.'], ['Historical candles', 'Retrieves provider-neutral completed candles.'], ['Kite OAuth session flow', 'Creates the daily encrypted session token.']].map(([title, detail]) => <Paper key={title} sx={{ p: 2, bgcolor: 'background.default' }}><Typography fontWeight={800}>{title}</Typography><Typography variant="body2" color="text.secondary" mt={.5}>{detail}</Typography></Paper>)}</Box></CardContent></Card>}
+    </Box>
+  </ThemeProvider>
 }
 
 function IntegrationRow({ label, value, ok }) { return <div className="integration-row"><span>{label}</span><strong className={ok ? 'row-ok' : 'row-muted'}>{ok ? '● ' : '○ '}{value}</strong></div> }
@@ -541,7 +604,17 @@ function ScannerSettings({ marketDataReady, notify }) {
     } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setSaving(false) }
   }
   if (!config) return null
-  return <section className="panel scanner-settings"><div className="panel-heading"><div><p className="eyebrow">STRATEGY CONFIGURATION</p><h2>Scanner rules</h2><p>Changes apply at runtime and are not broker orders.</p></div><span className={`badge ${config.enabled ? 'green' : 'blue'}`}>{config.enabled ? 'ENABLED' : 'DISABLED'}</span></div><form className="scanner-config-form" onSubmit={save}><label><span>Strategy enabled</span><input type="checkbox" checked={config.enabled} onChange={event => setConfig({ ...config, enabled: event.target.checked })} /></label><label><span>Opening-range candles</span><input type="number" min="1" value={config.openingRangeCandles} onChange={event => setConfig({ ...config, openingRangeCandles: event.target.value })} /></label><label><span>Volume lookback</span><input type="number" min="1" value={config.volumeLookback} onChange={event => setConfig({ ...config, volumeLookback: event.target.value })} /></label><label><span>Volume multiplier</span><input type="number" min="0.1" step="0.05" value={config.volumeMultiplier} onChange={event => setConfig({ ...config, volumeMultiplier: event.target.value })} /></label><label><span>Minimum candles</span><input type="number" min="3" value={config.minimumCandles} onChange={event => setConfig({ ...config, minimumCandles: event.target.value })} /></label><button className="primary" disabled={saving || !marketDataReady}>{saving ? 'Saving…' : 'Save scanner settings'}</button></form></section>
+  return <Card><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
+    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={2} mb={3}><Box><Typography variant="overline" color="text.secondary" letterSpacing=".14em">STRATEGY CONFIGURATION</Typography><Typography variant="h5">Scanner rules</Typography><Typography variant="body2" color="text.secondary">These values control signal evaluation only; they never place broker orders.</Typography></Box><Chip label={config.enabled ? 'ENABLED' : 'DISABLED'} color={config.enabled ? 'success' : 'default'} /></Stack>
+    <Box component="form" onSubmit={save} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2 }}>
+      <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gridColumn: { sm: '1 / -1' }, bgcolor: '#f4f7fb' }}><Box><Typography fontWeight={800}>Strategy enabled</Typography><Typography variant="caption" color="text.secondary">Allow completed candles to be evaluated against these rules.</Typography></Box><Switch checked={config.enabled} onChange={event => setConfig({ ...config, enabled: event.target.checked })} /></Paper>
+      <TextField label="Opening-range candles" type="number" inputProps={{ min: 1 }} value={config.openingRangeCandles} onChange={event => setConfig({ ...config, openingRangeCandles: event.target.value })} />
+      <TextField label="Volume lookback" type="number" inputProps={{ min: 1 }} value={config.volumeLookback} onChange={event => setConfig({ ...config, volumeLookback: event.target.value })} />
+      <TextField label="Volume multiplier" type="number" inputProps={{ min: 0.1, step: 0.05 }} value={config.volumeMultiplier} onChange={event => setConfig({ ...config, volumeMultiplier: event.target.value })} />
+      <TextField label="Minimum candles" type="number" inputProps={{ min: 3 }} value={config.minimumCandles} onChange={event => setConfig({ ...config, minimumCandles: event.target.value })} />
+      <Button type="submit" variant="contained" disabled={saving || !marketDataReady} sx={{ minHeight: 48, gridColumn: { sm: '1 / -1' } }}>{saving ? 'Saving scanner settings…' : 'Save scanner settings'}</Button>
+    </Box>
+  </CardContent></Card>
 }
 
 function LiveStream({ selected, marketDataReady, notify, onNavigate }) {
@@ -636,7 +709,9 @@ function LiveStream({ selected, marketDataReady, notify, onNavigate }) {
   const connected = status?.state === 'CONNECTED'
   return <section className="panel live-card">
     <div className="panel-heading"><div><p className="eyebrow">LIVE WATCHLIST — READ ONLY</p><h2>Completed-candle signal monitor</h2><p>Signals are generated only after a five-minute candle closes. They are alerts, never orders.</p></div><span className={`badge ${connected ? 'green' : 'blue'}`}>{status?.state || 'STOPPED'}</span></div>
-    <div className="dependency-chain"><strong>Live-monitor setup</strong><span className={marketDataReady ? 'ready' : 'missing'}>1. Kite connected</span><span className={hasSyncedSymbols ? 'ready' : 'missing'}>2. NSE symbols synced</span><span>3. Search and add</span><span>4. Start monitor</span>{!marketDataReady && <button className="link-button" onClick={() => onNavigate?.('connection')}>Go to Connection</button>}{marketDataReady && hasSyncedSymbols === false && <button className="link-button" onClick={() => onNavigate?.('symbols')}>Go to Symbols &amp; candles</button>}</div>\n    <form className="live-search" onSubmit={searchLiveSymbols}><input aria-label="Search synced NSE symbol for live monitoring" value={liveSearch} placeholder="Search synced NSE symbol (e.g. SBIN, HDFCBANK)" onChange={event => setLiveSearch(event.target.value.toUpperCase())} /><button className="ghost" type="submit" disabled={!liveSearch.trim() || liveSearching}>{liveSearching ? 'Searching…' : 'Search and add'}</button></form>\n    {dependencyMessage && <p className="verification-warning">{dependencyMessage} {hasSyncedSymbols === false && marketDataReady && <button className="link-button" onClick={() => onNavigate?.('symbols')}>Sync symbols first</button>}</p>}
+    <div className="dependency-chain"><strong>Live-monitor setup</strong><span className={marketDataReady ? 'ready' : 'missing'}>1. Kite connected</span><span className={hasSyncedSymbols ? 'ready' : 'missing'}>2. NSE symbols synced</span><span>3. Search and add</span><span>4. Start monitor</span>{!marketDataReady && <button className="link-button" onClick={() => onNavigate?.('connection')}>Go to Connection</button>}{marketDataReady && hasSyncedSymbols === false && <button className="link-button" onClick={() => onNavigate?.('symbols')}>Go to Symbols &amp; candles</button>}</div>
+    <form className="live-search" onSubmit={searchLiveSymbols}><input aria-label="Search synced NSE symbol for live monitoring" value={liveSearch} placeholder="Search synced NSE symbol (e.g. SBIN, HDFCBANK)" onChange={event => setLiveSearch(event.target.value.toUpperCase())} /><button className="ghost" type="submit" disabled={!liveSearch.trim() || liveSearching}>{liveSearching ? 'Searching…' : 'Search and add'}</button></form>
+    {dependencyMessage && <p className="verification-warning">{dependencyMessage} {hasSyncedSymbols === false && marketDataReady && <button className="link-button" onClick={() => onNavigate?.('symbols')}>Sync symbols first</button>}</p>}
     {liveResults.length > 0 && <div className="live-search-results">{liveResults.map(item => <div className="live-search-result" key={item.instrumentToken}><div><strong>{item.tradingsymbol}</strong><small>{item.sector || 'OTHER'} · {item.name || item.segment}</small></div><button className="primary" onClick={() => addLiveSymbol(item)} disabled={busy}>Add</button></div>)}</div>}
     <div className="live-actions"><button className="ghost" onClick={refresh}>↻ Refresh</button><button className="ghost" onClick={addSelected} disabled={!marketDataReady || !selected || busy}>{selected ? `Add ${selected.tradingsymbol}` : 'Select a symbol above'}</button>{groups.map(group => <button key={group} className="ghost group-button" onClick={() => addGroup(group)} disabled={!marketDataReady || busy}>{group === 'bank-nifty' ? 'Add Bank Nifty' : `Add ${group.toUpperCase()}`}</button>)}{connected ? <button className="danger-button" onClick={() => toggleStream('/api/v1/live-market/stop')} disabled={busy}>Stop monitor</button> : <button className="primary" onClick={() => toggleStream('/api/v1/live-market/start')} disabled={!marketDataReady || watchlist.length === 0 || busy}>{busy ? 'Working…' : 'Start monitor'}</button>}</div>
     <div className="live-grid"><div><span>Watchlist and latest ticks · {watchlist.length} symbols</span>{watchlist.length === 0 ? <p>No selected symbols yet.</p> : <ul>{watchlist.map(item => <li key={item.instrumentToken}><div><strong>{item.symbol}</strong><small>{status?.latestPrices?.[item.instrumentToken] ? `${money(status.latestPrices[item.instrumentToken])} · tick ${status.lastTickAt ? new Date(status.lastTickAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'pending'}` : 'Waiting for first tick'}</small></div><button className="watchlist-remove" onClick={() => removeSymbol(item.instrumentToken, item.symbol)} disabled={busy || connected}>Remove</button></li>)}</ul>}{connected && watchlist.length > 0 && <small className="watchlist-note">Stop the monitor before removing symbols.</small>}</div><div><span>Signal history · actionable only</span>{signals.length === 0 ? <p>{connected ? 'No actionable signal yet. Completed NO_TRADE evaluations are shown below.' : 'Start the monitor after adding symbols.'}</p> : <ul>{signals.slice(0, 20).map(signal => <li key={`${signal.instrumentToken}-${signal.candleStart}`} className={signal.type === 'WATCH_LONG' ? 'long-signal' : 'short-signal'}><strong>{signal.symbol} · {signal.type}</strong><small>{money(signal.referencePrice)} · {new Date(signal.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></li>)}</ul>}</div></div>
@@ -644,6 +719,100 @@ function LiveStream({ selected, marketDataReady, notify, onNavigate }) {
     {status?.lastError && <p className="live-error">{status.lastError}</p>}
     <details className="monitor-history"><summary>Last 7 days · persisted monitor history ({history.signals?.length || 0} signals, {history.candles?.length || 0} candles)</summary><div className="history-grid"><div><strong>Signals</strong>{history.signals?.length ? <ul>{history.signals.slice(0, 30).map(item => <li key={item.instrumentToken + '-' + item.candleStart}><b>{item.symbol} · {item.type}</b><small>{new Date(item.candleStart).toLocaleString()}</small></li>)}</ul> : <p>No signal history.</p>}</div><div><strong>Completed candles</strong><p>{history.candles?.length || 0} persisted candle evaluations are retained for review. Older records remain stored and are outside this seven-day view.</p></div></div></details>
   </section>
+}
+
+function LiveStreamMUI({ selected, marketDataReady, notify, onNavigate }) {
+  const [status, setStatus] = useState(null)
+  const [watchlist, setWatchlist] = useState([])
+  const [signals, setSignals] = useState([])
+  const [candles, setCandles] = useState([])
+  const [history, setHistory] = useState({ signals: [], candles: [] })
+  const [groups] = useState(['banking', 'bank-nifty', 'it', 'energy', 'auto', 'pharma', 'fmcg'])
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [hasSyncedSymbols, setHasSyncedSymbols] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [searching, setSearching] = useState(false)
+  const [message, setMessage] = useState('')
+
+  async function api(path, options) {
+    const response = await fetch(`${apiBase}${path}`, options)
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data.message || data.error || 'Live market-data request failed')
+    return data
+  }
+
+  async function refresh() {
+    try {
+      const [nextStatus, nextWatchlist, nextSignals, nextCandles, nextHistory] = await Promise.all([
+        api('/api/v1/live-market/status'), api('/api/v1/live-market/watchlist'),
+        api('/api/v1/live-market/signals'), api('/api/v1/live-market/candles'),
+        api('/api/v1/live-market/history?days=7')
+      ])
+      setStatus(nextStatus); setWatchlist(nextWatchlist); setSignals(nextSignals); setCandles(nextCandles); setHistory(nextHistory)
+    } catch (error) { notify({ tone: 'error', text: error.message }) }
+  }
+
+  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    if (!marketDataReady) { setHasSyncedSymbols(false); return }
+    api('/api/v1/market-data/instruments?query=')
+      .then(items => setHasSyncedSymbols(Array.isArray(items) && items.length > 0))
+      .catch(() => setHasSyncedSymbols(false))
+  }, [marketDataReady])
+  useEffect(() => {
+    if (status?.state !== 'CONNECTED') return undefined
+    const timer = window.setInterval(refresh, 5000)
+    return () => window.clearInterval(timer)
+  }, [status?.state])
+
+  async function search(event) {
+    event.preventDefault()
+    if (!marketDataReady) { setMessage('Connect Kite first.'); return }
+    if (hasSyncedSymbols === false) { setMessage('Sync NSE symbols first.'); return }
+    if (!query.trim()) return
+    setSearching(true); setMessage('')
+    try {
+      const next = await api('/api/v1/market-data/instruments?query=' + encodeURIComponent(query.trim().toUpperCase()))
+      setResults(next); if (!next.length) setMessage('No synced NSE symbol matched this search.')
+    } catch (error) { setMessage(error.message) } finally { setSearching(false) }
+  }
+
+  async function addSymbol(instrument) {
+    setBusy(true)
+    try { await api('/api/v1/live-market/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrumentToken: instrument.instrumentToken }) }); await refresh(); setResults([]); notify({ tone: 'success', text: `${instrument.tradingsymbol} added to the live monitor.` }) }
+    catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
+  }
+  async function addSelected() { if (selected) await addSymbol(selected) }
+  async function removeSymbol(token, symbol) {
+    setBusy(true)
+    try { await api(`/api/v1/live-market/watchlist/${token}`, { method: 'DELETE' }); await refresh(); notify({ tone: 'success', text: `${symbol} removed from the watchlist.` }) }
+    catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
+  }
+  async function addGroup(group) {
+    setBusy(true)
+    try { await api(`/api/v1/live-market/watchlist/groups/${group}`, { method: 'POST' }); await refresh(); notify({ tone: 'success', text: `${group} group added to the watchlist.` }) }
+    catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
+  }
+  async function toggle(path) {
+    setBusy(true)
+    try { await api(path, { method: 'POST' }); await refresh() } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
+  }
+
+  const connected = status?.state === 'CONNECTED'
+  return <ThemeProvider theme={marketTheme}>
+    <Card className="live-card"><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={2} mb={2}><Box><Typography variant="overline" color="text.secondary" letterSpacing=".14em">LIVE WATCHLIST · READ ONLY</Typography><Typography variant="h5">Completed-candle signal monitor</Typography><Typography variant="body2" color="text.secondary">Signals are generated only after a five-minute candle closes. They are alerts, never orders.</Typography></Box><Chip label={status?.state || 'STOPPED'} color={connected ? 'success' : 'default'} /></Stack>
+      <Paper sx={{ p: 2, mb: 2.5, bgcolor: '#f4f7fb' }}><Typography variant="subtitle2" fontWeight={800} mb={1.5}>Live-monitor setup</Typography><Stepper activeStep={!marketDataReady ? 0 : hasSyncedSymbols ? 2 : 1} alternativeLabel sx={{ '& .MuiStepLabel-label': { fontSize: { xs: 10, sm: 12 } } }}><Step><StepLabel>Kite connected</StepLabel></Step><Step><StepLabel>NSE symbols synced</StepLabel></Step><Step><StepLabel>Search and add</StepLabel></Step><Step><StepLabel>Start monitor</StepLabel></Step></Stepper>{!marketDataReady && <Alert severity="warning" action={<Button size="small" onClick={() => onNavigate?.('connection')}>Go to Connection</Button>} sx={{ mt: 2 }}>Connect Kite first. Live monitoring requires an active daily session.</Alert>}{marketDataReady && hasSyncedSymbols === false && <Alert severity="info" action={<Button size="small" onClick={() => onNavigate?.('symbols')}>Sync symbols</Button>} sx={{ mt: 2 }}>Sync NSE symbols before searching and adding a stock.</Alert>}{message && <Alert severity="warning" sx={{ mt: 2 }}>{message}</Alert>}</Paper>
+      <Box component="form" onSubmit={search} sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap' }}><TextField fullWidth sx={{ flex: '1 1 340px' }} label="Search synced NSE symbol" placeholder="SBIN, HDFCBANK, INFY" value={query} onChange={event => setQuery(event.target.value.toUpperCase())} /><Button type="submit" variant="contained" disabled={!query.trim() || searching}>{searching ? 'Searching…' : 'Search and add'}</Button></Box>
+      {results.length > 0 && <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2,1fr)' }, gap: 1.25, mb: 2, maxHeight: 260, overflowY: 'auto' }}>{results.map(item => <Paper key={item.instrumentToken} sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}><Box><Typography fontWeight={800}>{item.tradingsymbol}</Typography><Typography variant="caption" color="text.secondary">{item.sector || 'OTHER'} · {item.name || item.segment}</Typography></Box><Button size="small" variant="contained" onClick={() => addSymbol(item)} disabled={busy}>Add</Button></Paper>)}</Box>}
+      <Stack direction="row" gap={1} flexWrap="wrap" mb={2.5}><Button variant="outlined" onClick={refresh}>Refresh</Button><Button variant="outlined" onClick={addSelected} disabled={!marketDataReady || !selected || busy}>{selected ? `Add ${selected.tradingsymbol}` : 'Select a symbol above'}</Button>{groups.map(group => <Button key={group} variant="outlined" size="small" onClick={() => addGroup(group)} disabled={!marketDataReady || busy}>{group === 'bank-nifty' ? 'Bank Nifty' : group.toUpperCase()}</Button>)}{connected ? <Button color="error" variant="contained" onClick={() => toggle('/api/v1/live-market/stop')} disabled={busy}>Stop monitor</Button> : <Button variant="contained" onClick={() => toggle('/api/v1/live-market/start')} disabled={!marketDataReady || watchlist.length === 0 || busy}>{busy ? 'Working…' : 'Start monitor'}</Button>}</Stack>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mb: 2.5 }}><Paper sx={{ p: 2, maxHeight: 300, overflowY: 'auto' }}><Typography variant="overline" color="text.secondary">WATCHLIST · {watchlist.length} SYMBOLS</Typography>{watchlist.length === 0 ? <Typography variant="body2" color="text.secondary" mt={1}>No selected symbols yet.</Typography> : <Stack divider={<Divider flexItem />} mt={1}>{watchlist.map(item => <Stack key={item.instrumentToken} direction="row" justifyContent="space-between" alignItems="center" py={1}><Box><Typography fontWeight={750}>{item.symbol}</Typography><Typography variant="caption" color="text.secondary">{status?.latestPrices?.[item.instrumentToken] ? `${money(status.latestPrices[item.instrumentToken])} · ${status.lastTickAt ? new Date(status.lastTickAt).toLocaleTimeString() : 'tick'}` : 'Waiting for first tick'}</Typography></Box><Button size="small" color="error" onClick={() => removeSymbol(item.instrumentToken, item.symbol)} disabled={busy || connected}>Remove</Button></Stack>)}</Stack>}</Paper><Paper sx={{ p: 2, maxHeight: 300, overflowY: 'auto' }}><Typography variant="overline" color="text.secondary">SIGNAL HISTORY · ACTIONABLE ONLY</Typography>{signals.length === 0 ? <Typography variant="body2" color="text.secondary" mt={1}>{connected ? 'No actionable signal yet.' : 'Start the monitor after adding symbols.'}</Typography> : <Stack divider={<Divider flexItem />} mt={1}>{signals.slice(0, 20).map(signal => <Box key={`${signal.instrumentToken}-${signal.candleStart}`} py={1}><Typography fontWeight={750} color={signal.type === 'WATCH_LONG' ? 'success.main' : 'error.main'}>{signal.symbol} · {signal.type}</Typography><Typography variant="caption" color="text.secondary">{money(signal.referencePrice)} · {new Date(signal.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Typography></Box>)}</Stack>}</Paper></Box>
+      <Paper sx={{ p: 2, mb: 2.5 }}><Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}><Typography variant="overline" color="text.secondary">COMPLETED LIVE CANDLES</Typography><Typography variant="caption" color="text.secondary">{candles.length ? 'Latest candles shown first' : 'No completed candle received in this run'}</Typography></Stack>{candles.length === 0 ? <Typography variant="body2" color="text.secondary">The first row appears after the next five-minute boundary receives a tick.</Typography> : <Box sx={{ overflow: 'auto', maxHeight: 350 }}><table className="candle-table"><thead><tr><th>Symbol / time</th><th>OHLC</th><th>Volume</th><th>Evaluation</th><th>VWAP</th></tr></thead><tbody>{candles.slice(0, 30).map(candle => <tr key={`${candle.instrumentToken}-${candle.candleStart}`}><td><strong>{candle.symbol}</strong><small>{new Date(candle.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></td><td>{money(candle.open)} / {money(candle.high)} / {money(candle.low)} / {money(candle.close)}</td><td>{candle.volume.toLocaleString()}</td><td>{candle.evaluationType}</td><td>{candle.vwap ? money(candle.vwap) : '—'}</td></tr>)}</tbody></table></Box>}</Paper>
+      {status?.lastError && <Alert severity="error" sx={{ mb: 2 }}>{status.lastError}</Alert>}
+      <Paper component="details" sx={{ p: 2 }}><Typography component="summary" fontWeight={750} sx={{ cursor: 'pointer' }}>Last 7 days · persisted monitor history ({history.signals?.length || 0} signals, {history.candles?.length || 0} candles)</Typography><Box sx={{ mt: 2, maxHeight: 260, overflowY: 'auto' }}>{history.signals?.length ? history.signals.slice(0, 30).map(item => <Box key={item.instrumentToken + '-' + item.candleStart} py={.75}><Typography variant="body2" fontWeight={700}>{item.symbol} · {item.type}</Typography><Typography variant="caption" color="text.secondary">{new Date(item.candleStart).toLocaleString()}</Typography></Box>) : <Typography variant="body2" color="text.secondary" mt={1}>No signal history.</Typography>}</Box></Paper>
+    </CardContent></Card>
+  </ThemeProvider>
 }
 
 function Journal({ notify }) {

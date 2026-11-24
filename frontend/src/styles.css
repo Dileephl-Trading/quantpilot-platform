@@ -213,3 +213,17 @@ body { min-width: 320px; }
   .live-search { align-items:stretch; flex-direction:column; }
   .live-search button { width:100%; }
 }
+
+/* Keep market-data pages contained: the page itself scrolls once, while large
+   watchlists, search results, history and candle tables scroll inside their
+   own bounded surfaces. */
+html, body, #root { max-width: 100%; overflow-x: hidden; }
+.main-content { min-width: 0; overflow-x: clip; }
+.integration-page { min-width: 0; overflow-x: clip; }
+.integration-page .MuiCardContent-root { min-width: 0; }
+.integration-page .MuiTabs-root { min-height: 52px; }
+.integration-page .MuiTab-root { min-height: 52px; font-weight: 750; text-transform: none; }
+.integration-page .MuiPaper-root { min-width: 0; }
+.integration-page table { min-width: 680px; }
+.integration-page .candle-table-wrap { max-height: 360px; overflow: auto; }
+.integration-page .live-card { overflow: hidden; }
