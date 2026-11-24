@@ -9,4 +9,5 @@ public interface LiveSignalRepository extends JpaRepository<LiveSignalEntity, UU
     boolean existsByProviderAndInstrumentTokenAndCandleStart(String provider, long instrumentToken, OffsetDateTime candleStart);
     List<LiveSignalEntity> findTop25ByOrderByGeneratedAtDesc();
     List<LiveSignalEntity> findTop200ByOrderByGeneratedAtDesc();
+    List<LiveSignalEntity> findByGeneratedAtAfterOrderByGeneratedAtDesc(OffsetDateTime cutoff);
 }
