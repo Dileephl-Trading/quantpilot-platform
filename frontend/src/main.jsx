@@ -548,6 +548,9 @@ function LiveStream({ selected, marketDataReady, notify }) {
   const [busy, setBusy] = useState(false)
   const [groups, setGroups] = useState([])
   const [history, setHistory] = useState({ signals: [], candles: [] })
+  const [liveSearch, setLiveSearch] = useState('')
+  const [liveResults, setLiveResults] = useState([])
+  const [liveSearching, setLiveSearching] = useState(false)
 
   async function api(path, options) {
     const response = await fetch(`${apiBase}${path}`, options)
@@ -571,6 +574,27 @@ function LiveStream({ selected, marketDataReady, notify }) {
     const timer = window.setInterval(refresh, 5000)
     return () => window.clearInterval(timer)
   }, [status?.state])
+  async function searchLiveSymbols(event) {
+    event.preventDefault()
+    const query = liveSearch.trim().toUpperCase()
+    if (!query || !marketDataReady) return
+    setLiveSearching(true)
+    try {
+      const results = await api('/api/v1/market-data/instruments?query=' + encodeURIComponent(query))
+      setLiveResults(results)
+    } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setLiveSearching(false) }
+  }
+
+  async function addLiveSymbol(instrument) {
+    setBusy(true)
+    try {
+      await api('/api/v1/live-market/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrumentToken: instrument.instrumentToken }) })
+      await refresh()
+      setLiveResults([])
+      notify({ tone: 'success', text: instrument.tradingsymbol + ' added to the live monitor.' })
+    } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
+  }
+
   async function addSelected() {
     if (!selected) return
     setBusy(true)
@@ -602,6 +626,8 @@ function LiveStream({ selected, marketDataReady, notify }) {
   const connected = status?.state === 'CONNECTED'
   return <section className="panel live-card">
     <div className="panel-heading"><div><p className="eyebrow">LIVE WATCHLIST — READ ONLY</p><h2>Completed-candle signal monitor</h2><p>Signals are generated only after a five-minute candle closes. They are alerts, never orders.</p></div><span className={`badge ${connected ? 'green' : 'blue'}`}>{status?.state || 'STOPPED'}</span></div>
+    <form className="live-search" onSubmit={searchLiveSymbols}><input aria-label="Search synced NSE symbol for live monitoring" value={liveSearch} placeholder="Search synced NSE symbol (e.g. SBIN, HDFCBANK)" onChange={event => setLiveSearch(event.target.value.toUpperCase())} /><button className="ghost" type="submit" disabled={!marketDataReady || liveSearching || !liveSearch.trim()}>{liveSearching ? 'Searching…' : 'Search and add'}</button></form>
+    {liveResults.length > 0 && <div className="live-search-results">{liveResults.map(item => <div className="live-search-result" key={item.instrumentToken}><div><strong>{item.tradingsymbol}</strong><small>{item.sector || 'OTHER'} · {item.name || item.segment}</small></div><button className="primary" onClick={() => addLiveSymbol(item)} disabled={busy}>Add</button></div>)}</div>}
     <div className="live-actions"><button className="ghost" onClick={refresh}>↻ Refresh</button><button className="ghost" onClick={addSelected} disabled={!marketDataReady || !selected || busy}>{selected ? `Add ${selected.tradingsymbol}` : 'Select a symbol above'}</button>{groups.map(group => <button key={group} className="ghost group-button" onClick={() => addGroup(group)} disabled={!marketDataReady || busy}>{group === 'bank-nifty' ? 'Add Bank Nifty' : `Add ${group.toUpperCase()}`}</button>)}{connected ? <button className="danger-button" onClick={() => toggleStream('/api/v1/live-market/stop')} disabled={busy}>Stop monitor</button> : <button className="primary" onClick={() => toggleStream('/api/v1/live-market/start')} disabled={!marketDataReady || watchlist.length === 0 || busy}>{busy ? 'Working…' : 'Start monitor'}</button>}</div>
     <div className="live-grid"><div><span>Watchlist and latest ticks · {watchlist.length} symbols</span>{watchlist.length === 0 ? <p>No selected symbols yet.</p> : <ul>{watchlist.map(item => <li key={item.instrumentToken}><div><strong>{item.symbol}</strong><small>{status?.latestPrices?.[item.instrumentToken] ? `${money(status.latestPrices[item.instrumentToken])} · tick ${status.lastTickAt ? new Date(status.lastTickAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'pending'}` : 'Waiting for first tick'}</small></div><button className="watchlist-remove" onClick={() => removeSymbol(item.instrumentToken, item.symbol)} disabled={busy || connected}>Remove</button></li>)}</ul>}{connected && watchlist.length > 0 && <small className="watchlist-note">Stop the monitor before removing symbols.</small>}</div><div><span>Signal history · actionable only</span>{signals.length === 0 ? <p>{connected ? 'No actionable signal yet. Completed NO_TRADE evaluations are shown below.' : 'Start the monitor after adding symbols.'}</p> : <ul>{signals.slice(0, 20).map(signal => <li key={`${signal.instrumentToken}-${signal.candleStart}`} className={signal.type === 'WATCH_LONG' ? 'long-signal' : 'short-signal'}><strong>{signal.symbol} · {signal.type}</strong><small>{money(signal.referencePrice)} · {new Date(signal.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></li>)}</ul>}</div></div>
     <div className="candle-panel"><div className="candle-heading"><span>Completed live candles</span><small>{candles.length ? 'Latest candles are shown first' : 'No completed live candle received in this run'}</small></div>{candles.length === 0 ? <p className="empty-candles">The first row appears after the next five-minute boundary receives a tick.</p> : <div className="candle-table-wrap"><table className="candle-table"><thead><tr><th>Symbol / time</th><th>OHLC</th><th>Volume</th><th>Evaluation</th><th>VWAP</th></tr></thead><tbody>{candles.slice(0, 20).map(candle => <tr key={`${candle.instrumentToken}-${candle.candleStart}`}><td><strong>{candle.symbol}</strong><small>{new Date(candle.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></td><td>{money(candle.open)} / {money(candle.high)} / {money(candle.low)} / {money(candle.close)}</td><td>{candle.volume.toLocaleString()}</td><td><span className={`candle-evaluation ${candle.evaluationType === 'WATCH_LONG' ? 'long-signal' : candle.evaluationType === 'WATCH_SHORT' ? 'short-signal' : ''}`}>{candle.evaluationType}</span></td><td>{candle.vwap ? money(candle.vwap) : '—'}</td></tr>)}</tbody></table></div>}</div>
