@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Alert, Box, Button, Card, CardContent, Chip, Divider, Paper, Stack, Step, StepLabel, Stepper, Switch, Tab, Tabs, TextField, ThemeProvider, Typography, createTheme } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, LinearProgress, Paper, Stack, Step, StepLabel, Stepper, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, ThemeProvider, Typography, createTheme } from '@mui/material'
 import './styles.css'
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || ''
@@ -194,11 +194,11 @@ function App() {
 
   useEffect(() => { if (active === 'execution' && authState === 'authenticated') refreshExecution() }, [active, authState])
 
-  if (authState === 'checking') return <div className="auth-loading">Checking secure session…</div>
+  if (authState === 'checking') return <ThemeProvider theme={marketTheme}><Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: '#edf2f8' }}><Stack alignItems="center" gap={2}><CircularProgress size={34} /><Typography color="text.secondary">Checking secure session…</Typography></Stack></Box></ThemeProvider>
   if (authState === 'unauthenticated') return <LoginPage onSuccess={() => { setAuthError(''); setAuthState('authenticated'); loadProfile(); loadKiteStatus() }} />
-  if (authState === 'unavailable') return <div className="auth-loading"><div className="login-card"><h1>Signal<span>Desk</span></h1><p>Authentication service is unavailable.</p><small>{authError}</small><button className="primary" onClick={() => window.location.reload()}>Retry</button></div></div>
+  if (authState === 'unavailable') return <ThemeProvider theme={marketTheme}><Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 3, bgcolor: '#edf2f8' }}><Card sx={{ ...pageCardSx, width: 'min(430px,100%)' }}><CardContent><Stack gap={2}><Typography variant="h5">Signal<span style={{ color: '#00a9ac' }}>Desk</span></Typography><Alert severity="error">Authentication service is unavailable.</Alert><Typography variant="caption" color="text.secondary">{authError}</Typography><Button variant="contained" onClick={() => window.location.reload()}>Retry</Button></Stack></CardContent></Card></Box></ThemeProvider>
 
-  return <div className="app-shell">
+  return <ThemeProvider theme={marketTheme}><Box className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#overview" onClick={() => setActive('overview')}>
         <span className="brand-mark">S</span><span>Signal<span>Desk</span></span>
@@ -241,83 +241,129 @@ function App() {
         </div>
       </header>
 
-      {notice && <div className={`notice ${notice.tone}`}><span>{notice.tone === 'success' ? '✓' : '!'}</span>{notice.text}<button onClick={() => setNotice(null)}>×</button></div>}
+      {notice && <Alert severity={notice.tone === 'success' ? 'success' : 'error'} onClose={() => setNotice(null)} sx={{ mb: 2 }}>{notice.text}</Alert>}
 
-      {!profile && loading ? <section className="loading-card">Loading your local risk profile…</section> : <>
-        {active === 'overview' && <>
-          <section className="safety-banner"><div className="safety-icon">⌁</div><div><strong>Execution is disabled.</strong><p>Approved previews are paper-only. This frontend cannot send a broker order.</p></div></section>
-          <section className="metrics-grid">
-            <Metric label="Allocated capital" value={money(profile?.allocatedCapital)} detail="Configured paper capital" />
-            <Metric label="Risk per trade" value={money(profile?.maxLossPerTrade)} detail="Maximum loss at stop" accent="orange" />
-            <Metric label="Daily stop" value={money(profile?.maxDailyLoss)} detail="Stop trading after this loss" accent="red" />
-            <Metric label="Position limits" value={`${profile?.maxOpenPositions} open / ${profile?.maxTradesPerDay} trades`} detail="Session guardrails" />
-          </section>
-          <section className="two-column">
-            <div className="panel checklist"><div className="panel-heading"><div><p className="eyebrow">BEFORE EVERY PAPER TRADE</p><h2>Risk checklist</h2></div><span className="badge">Required</span></div>
-              <Checklist text="Define entry and hard stop before checking quantity" />
-              <Checklist text="Keep proposed loss inside the configured limit" />
-              <Checklist text="Avoid recovery sizing or averaging down" />
-              <Checklist text="Treat every signal as a hypothesis, not an instruction" />
-            </div>
-            <div className="panel quick-action"><p className="eyebrow">NEXT STEP</p><h2>Validate a setup</h2><p>Check the maximum permitted quantity from the exact entry and stop distance.</p><button className="primary" onClick={() => setActive('risk')}>Open risk preview <span>→</span></button></div>
-          </section>
-        </>}
+      {!profile && loading ? <Card sx={{ p: 4 }}><LinearProgress sx={{ mb: 2 }} /><Typography color="text.secondary">Loading your local risk profile…</Typography></Card> : <>
+        {active === 'overview' && <OverviewMUI profile={profile} onOpenRisk={() => setActive('risk')} />}
 
-        {active === 'risk' && <section className="risk-layout">
-          <form className="panel order-form" onSubmit={checkOrder}>
-            <div className="panel-heading"><div><p className="eyebrow">PAPER-TRADE GATE</p><h2>Order risk preview</h2></div><span className="badge blue">No order routing</span></div>
-            <div className="field-grid">
-              <Field label="NSE symbol"><input value={order.symbol} maxLength="32" onChange={e => changeOrder('symbol', e.target.value)} /></Field>
-              <Field label="Side"><select value={order.side} onChange={e => changeOrder('side', e.target.value)}><option>BUY</option><option>SELL</option></select></Field>
-              <Field label="Entry price (₹)"><input type="number" min="0" step="0.05" value={order.entryPrice} onChange={e => changeOrder('entryPrice', e.target.value)} /></Field>
-              <Field label="Stop price (₹)"><input type="number" min="0" step="0.05" value={order.stopPrice} onChange={e => changeOrder('stopPrice', e.target.value)} /></Field>
-              <Field label="Quantity"><input type="number" min="1" step="1" value={order.quantity} onChange={e => changeOrder('quantity', e.target.value)} /></Field>
-            </div>
-            <div className="calculated-risk"><span>Calculated risk before API check</span><strong className={localRisk > Number(profile?.maxLossPerTrade) ? 'danger-text' : ''}>{money(localRisk)}</strong></div>
-            <button className="primary full" disabled={checking}>{checking ? 'Checking limits…' : 'Check paper-trade limits'} <span>→</span></button>
-          </form>
+        {active === 'risk' && <RiskPreviewMUI profile={profile} order={order} preview={preview} localRisk={localRisk} checking={checking} changeOrder={changeOrder} checkOrder={checkOrder} />}
 
-          <aside className={`panel decision ${preview ? (preview.allowed ? 'allowed' : 'rejected') : ''}`}>
-            <p className="eyebrow">RISK DECISION</p>
-            {!preview ? <><h2>Waiting for a setup</h2><p>Enter the proposed entry, stop and quantity. The API calculates permitted quantity using your saved risk profile.</p></> : <>
-              <div className="decision-title"><span>{preview.allowed ? '✓' : '×'}</span><h2>{preview.allowed ? 'Within limits' : 'Blocked by guardrails'}</h2></div>
-              <div className="result-stat"><span>Proposed risk</span><strong>{money(preview.proposedRisk)}</strong></div>
-              <div className="result-stat"><span>Maximum quantity</span><strong>{preview.maxAllowedQuantity}</strong></div>
-              <ul>{preview.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
-              <p className="execution-note">Mode: <strong>{preview.executionMode}</strong>. No broker request has been sent.</p>
-            </>}
-          </aside>
-        </section>}
+        {active === 'execution' && <ExecutionConsoleMUI profile={profile} status={kiteStatus} form={execution} change={changeExecution} orders={executionOrders} busy={executionBusy} setBusy={setExecutionBusy} refresh={refreshExecution} notify={setNotice} />}
 
-        {active === 'execution' && <ExecutionConsole profile={profile} status={kiteStatus} form={execution} change={changeExecution} orders={executionOrders} busy={executionBusy} setBusy={setExecutionBusy} refresh={refreshExecution} notify={setNotice} />}
+        {active === 'audit' && <AuditLogMUI notify={setNotice} />}
 
-        {active === 'audit' && <AuditLog notify={setNotice} />}
-
-        {active === 'journal' && <Journal notify={setNotice} />}
+        {active === 'journal' && <JournalMUI notify={setNotice} />}
 
         {active === 'integration' && <KiteIntegration status={kiteStatus} refresh={loadKiteStatus} notify={setNotice} />}
 
-        {active === 'settings' && draft && <form className="panel settings-panel" onSubmit={saveProfile}>
-          <div className="panel-heading"><div><p className="eyebrow">LOCAL CONFIGURATION</p><h2>Paper-trading guardrails</h2><p>These limits are stored in your local PostgreSQL database.</p></div><span className="badge">PAPER / DRY-RUN only</span></div>
-          <div className="setting-grid">
-            <Field label="Mode"><select value={draft.mode} onChange={e => changeDraft('mode', e.target.value)}><option>PAPER</option><option>DRY_RUN</option></select></Field>
-            <Field label="Broker label"><input value={draft.broker} onChange={e => changeDraft('broker', e.target.value)} /></Field>
-            <Field label="Exchange"><input value={draft.exchange} onChange={e => changeDraft('exchange', e.target.value)} /></Field>
-            <Field label="Segment"><input value={draft.segment} onChange={e => changeDraft('segment', e.target.value)} /></Field>
-            <Field label="Product"><input value={draft.product} onChange={e => changeDraft('product', e.target.value)} /></Field>
-            <Field label="Allocated capital (₹)"><input type="number" min="1" value={draft.allocatedCapital} onChange={e => changeDraft('allocatedCapital', e.target.value)} /></Field>
-            <Field label="Maximum loss per trade (₹)"><input type="number" min="1" value={draft.maxLossPerTrade} onChange={e => changeDraft('maxLossPerTrade', e.target.value)} /></Field>
-            <Field label="Maximum daily loss (₹)"><input type="number" min="1" value={draft.maxDailyLoss} onChange={e => changeDraft('maxDailyLoss', e.target.value)} /></Field>
-            <Field label="Maximum trades per day"><input type="number" min="1" value={draft.maxTradesPerDay} onChange={e => changeDraft('maxTradesPerDay', e.target.value)} /></Field>
-            <Field label="Maximum open positions"><input type="number" min="1" value={draft.maxOpenPositions} onChange={e => changeDraft('maxOpenPositions', e.target.value)} /></Field>
-            <Field label="Cooldown between intents (seconds)"><input type="number" min="0" value={draft.cooldownSeconds ?? 60} onChange={e => changeDraft('cooldownSeconds', e.target.value)} /></Field>
-          </div>
-          <label className="kill-switch"><input type="checkbox" checked={draft.killSwitchEnabled} onChange={e => changeDraft('killSwitchEnabled', e.target.checked)} /><span><strong>Enable kill switch</strong><small>Blocks every paper-trade preview until you turn it off.</small></span></label>
-          <button className="primary save" disabled={saving}>{saving ? 'Saving…' : 'Save local profile'} <span>→</span></button>
-        </form>}
+        {active === 'settings' && draft && <ProfileMUI draft={draft} changeDraft={changeDraft} saveProfile={saveProfile} saving={saving} />}
       </>}
     </main>
-  </div>
+  </Box></ThemeProvider>
+}
+
+const pageCardSx = { borderRadius: 4, background: 'linear-gradient(145deg, #f8faff, #edf2f8)', border: '1px solid rgba(108,128,158,.16)', boxShadow: '10px 14px 30px rgba(90,108,137,.14), -8px -8px 22px rgba(255,255,255,.82)' }
+const insetSx = { borderRadius: 3, background: '#edf2f8', boxShadow: 'inset 4px 4px 9px #d2dae5, inset -4px -4px 9px #ffffff' }
+
+function PageHeading({ eyebrow, title, description, action }) {
+  return <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'flex-start' }} gap={2} mb={3}>
+    <Box><Typography variant="overline" color="text.secondary" letterSpacing=".14em">{eyebrow}</Typography><Typography variant="h5">{title}</Typography>{description && <Typography variant="body2" color="text.secondary" mt={.5}>{description}</Typography>}</Box>
+    {action}
+  </Stack>
+}
+
+function OverviewMUI({ profile, onOpenRisk }) {
+  const metrics = [
+    ['Allocated capital', money(profile?.allocatedCapital), 'Configured paper capital', 'primary'],
+    ['Risk per trade', money(profile?.maxLossPerTrade), 'Maximum loss at stop', 'warning'],
+    ['Daily stop', money(profile?.maxDailyLoss), 'Stop trading after this loss', 'error'],
+    ['Position limits', `${profile?.maxOpenPositions} open / ${profile?.maxTradesPerDay} trades`, 'Session guardrails', 'secondary']
+  ]
+  const checklist = ['Define entry and hard stop before checking quantity', 'Keep proposed loss inside the configured limit', 'Avoid recovery sizing or averaging down', 'Treat every signal as a hypothesis, not an instruction']
+  return <Box sx={{ display: 'grid', gap: 2.5 }}>
+    <Alert severity="info" variant="outlined" sx={{ borderRadius: 3, bgcolor: 'rgba(232,248,251,.72)' }}><Typography fontWeight={800}>Execution is disabled.</Typography><Typography variant="body2">Approved previews are paper-only. Broker routing remains separately gated.</Typography></Alert>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4,1fr)' }, gap: 2 }}>
+      {metrics.map(([label, value, detail, color]) => <Card key={label} sx={{ ...pageCardSx, minHeight: 132 }}><CardContent sx={{ p: 2.5 }}><Typography variant="caption" color="text.secondary" fontWeight={700}>{label}</Typography><Typography variant="h5" color={`${color}.main`} mt={1}>{value}</Typography><Typography variant="caption" color="text.secondary">{detail}</Typography></CardContent></Card>)}
+    </Box>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.25fr .9fr' }, gap: 2.5 }}>
+      <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="BEFORE EVERY PAPER TRADE" title="Risk checklist" action={<Chip label="Required" color="secondary" size="small" />} /><Stack divider={<Divider flexItem />}>{checklist.map(item => <Stack key={item} direction="row" gap={1.5} alignItems="center" py={1.2}><Chip label="✓" size="small" color="success" sx={{ minWidth: 28 }} /><Typography variant="body2">{item}</Typography></Stack>)}</Stack></CardContent></Card>
+      <Card sx={{ ...pageCardSx, background: 'linear-gradient(145deg,#e5f7f7,#eaf0f8)' }}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><Typography variant="overline" color="text.secondary" letterSpacing=".14em">NEXT STEP</Typography><Typography variant="h5" mb={1}>Validate a setup</Typography><Typography variant="body2" color="text.secondary" lineHeight={1.7} mb={3}>Check the maximum permitted quantity from the exact entry and stop distance.</Typography><Button variant="contained" fullWidth onClick={onOpenRisk}>Open risk preview →</Button></CardContent></Card>
+    </Box>
+  </Box>
+}
+
+function RiskPreviewMUI({ profile, order, preview, localRisk, checking, changeOrder, checkOrder }) {
+  return <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.2fr .9fr' }, gap: 2.5 }}>
+    <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="PAPER-TRADE GATE" title="Order risk preview" description="Define the entry, hard stop, and quantity before any paper-trade intent is considered." action={<Chip label="No order routing" color="info" size="small" />} /><Box component="form" onSubmit={checkOrder} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+      <TextField label="NSE symbol" value={order.symbol} inputProps={{ maxLength: 32 }} onChange={e => changeOrder('symbol', e.target.value.toUpperCase())} />
+      <TextField select SelectProps={{ native: true }} label="Side" value={order.side} onChange={e => changeOrder('side', e.target.value)}><option>BUY</option><option>SELL</option></TextField>
+      <TextField label="Entry price (₹)" type="number" inputProps={{ min: 0, step: .05 }} value={order.entryPrice} onChange={e => changeOrder('entryPrice', e.target.value)} />
+      <TextField label="Stop price (₹)" type="number" inputProps={{ min: 0, step: .05 }} value={order.stopPrice} onChange={e => changeOrder('stopPrice', e.target.value)} />
+      <TextField label="Quantity" type="number" inputProps={{ min: 1, step: 1 }} value={order.quantity} onChange={e => changeOrder('quantity', e.target.value)} />
+      <Paper sx={{ ...insetSx, p: 1.6, gridColumn: { sm: '1 / -1' }, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><Typography variant="body2" color="text.secondary">Calculated risk before API check</Typography><Typography variant="h6" color={localRisk > Number(profile?.maxLossPerTrade) ? 'error.main' : 'success.main'}>{money(localRisk)}</Typography></Paper>
+      <Button type="submit" variant="contained" fullWidth disabled={checking} sx={{ gridColumn: { sm: '1 / -1' }, minHeight: 48 }}>{checking ? 'Checking limits…' : 'Check paper-trade limits →'}</Button>
+    </Box></CardContent></Card>
+    <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="RISK DECISION" title={preview ? (preview.allowed ? 'Within limits' : 'Blocked by guardrails') : 'Waiting for a setup'} action={preview && <Chip label={preview.allowed ? 'ALLOWED' : 'BLOCKED'} color={preview.allowed ? 'success' : 'error'} size="small" />} />{!preview ? <Typography variant="body2" color="text.secondary" lineHeight={1.8}>Enter the proposed entry, stop, and quantity. The API will calculate permitted quantity using your saved risk profile.</Typography> : <Stack gap={2}><Stack direction="row" justifyContent="space-between" sx={insetSx} p={1.8}><Typography color="text.secondary">Proposed risk</Typography><Typography fontWeight={800}>{money(preview.proposedRisk)}</Typography></Stack><Stack direction="row" justifyContent="space-between" sx={insetSx} p={1.8}><Typography color="text.secondary">Maximum quantity</Typography><Typography fontWeight={800}>{preview.maxAllowedQuantity}</Typography></Stack><Alert severity={preview.allowed ? 'success' : 'error'}>{preview.reasons?.map(reason => <div key={reason}>{reason}</div>)}</Alert><Typography variant="caption" color="text.secondary">Mode: <b>{preview.executionMode}</b>. No broker request has been sent.</Typography></Stack>}</CardContent></Card>
+  </Box>
+}
+
+function ProfileMUI({ draft, changeDraft, saveProfile, saving }) {
+  const fields = [['broker', 'Broker label', 'text'], ['exchange', 'Exchange', 'text'], ['segment', 'Segment', 'text'], ['product', 'Product', 'text'], ['allocatedCapital', 'Allocated capital (₹)', 'number'], ['maxLossPerTrade', 'Maximum loss per trade (₹)', 'number'], ['maxDailyLoss', 'Maximum daily loss (₹)', 'number'], ['maxTradesPerDay', 'Maximum trades per day', 'number'], ['maxOpenPositions', 'Maximum open positions', 'number'], ['cooldownSeconds', 'Cooldown between intents (seconds)', 'number']]
+  return <Card sx={{ ...pageCardSx, maxWidth: 980 }}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="LOCAL CONFIGURATION" title="Paper-trading guardrails" description="These limits are stored in your local PostgreSQL database." action={<Chip label="PAPER / DRY-RUN only" color="secondary" size="small" />} /><Box component="form" onSubmit={saveProfile} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+      <TextField select SelectProps={{ native: true }} label="Mode" value={draft.mode} onChange={e => changeDraft('mode', e.target.value)}><option>PAPER</option><option>DRY_RUN</option><option>LIVE</option></TextField>
+      {fields.map(([key, label, type]) => <TextField key={key} label={label} type={type} value={draft[key] ?? ''} inputProps={type === 'number' ? { min: 0 } : undefined} onChange={e => changeDraft(key, e.target.value)} />)}
+      <Paper sx={{ ...insetSx, p: 1.6, gridColumn: { sm: '1 / -1' }, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><Box><Typography fontWeight={800}>Enable kill switch</Typography><Typography variant="caption" color="text.secondary">Blocks every paper-trade preview until disabled.</Typography></Box><Switch checked={Boolean(draft.killSwitchEnabled)} onChange={e => changeDraft('killSwitchEnabled', e.target.checked)} /></Paper>
+      <Button type="submit" variant="contained" disabled={saving} sx={{ gridColumn: { sm: '1 / -1' }, minHeight: 48 }}>{saving ? 'Saving…' : 'Save local profile →'}</Button>
+    </Box></CardContent></Card>
+}
+
+function AuditLogMUI({ notify }) {
+  const [events, setEvents] = useState([])
+  const [loading, setLoading] = useState(false)
+  async function refresh() { setLoading(true); try { const response = await fetch(`${apiBase}/api/v1/audit/events?limit=100`); const data = await response.json().catch(() => []); if (!response.ok) throw new Error(data.message || 'Audit events could not be loaded'); setEvents(data) } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setLoading(false) } }
+  useEffect(() => { refresh() }, [])
+  return <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2, md: 3 } }}><PageHeading eyebrow="DURABLE SAFETY TRAIL" title="Recent events" description="Order attempts, safeguards, kill-switch changes, and reconciliation events are stored in PostgreSQL." action={<Button variant="outlined" onClick={refresh} disabled={loading}>↻ Refresh</Button>} />{loading && <LinearProgress sx={{ mb: 2 }} />}{events.length === 0 ? <Alert severity="info">No audit events recorded.</Alert> : <TableContainer sx={{ maxHeight: 560, borderRadius: 2, ...insetSx }}><Table stickyHeader size="small"><TableHead><TableRow>{['Time', 'Event', 'Aggregate', 'Details'].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{events.map((event, index) => <TableRow hover key={`${event.occurredAt}-${index}`}><TableCell sx={{ whiteSpace: 'nowrap' }}>{event.occurredAt ? new Date(event.occurredAt).toLocaleString() : '—'}</TableCell><TableCell><Typography fontWeight={800}>{event.eventType}</Typography></TableCell><TableCell>{event.aggregateType}<Typography variant="caption" display="block" color="text.secondary">{event.aggregateId}</Typography></TableCell><TableCell sx={{ minWidth: 260, whiteSpace: 'normal', wordBreak: 'break-word' }}>{event.details}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</CardContent></Card>
+}
+
+function ExecutionConsoleMUI({ profile, status, form, change, orders, busy, setBusy, refresh, notify }) {
+  const [automationStatus, setAutomationStatus] = useState(null)
+  const liveGateReady = profile?.mode === 'LIVE' && status?.executionState === 'CONFIGURED_BUT_GATED' && status?.accessTokenConfigured
+  useEffect(() => { fetch(`${apiBase}/api/v1/automation/status`).then(response => response.ok ? response.json() : null).then(setAutomationStatus).catch(() => setAutomationStatus(null)) }, [])
+  async function api(path, options) { const response = await fetch(`${apiBase}${path}`, options); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || 'Execution request failed'); return data }
+  async function submit(event) { event.preventDefault(); if (!liveGateReady) { notify({ tone: 'error', text: 'Execution is locked. Enable the explicit routing flag, use LIVE profile mode, and complete Kite login first.' }); return } if (!window.confirm(`Submit ${form.side} ${form.quantity} ${form.symbol}? This can place a real broker order.`)) return; setBusy(true); try { const key = window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random()}`; await api('/api/v1/execution/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify({ ...form, symbol: form.symbol.trim().toUpperCase(), quantity: Number(form.quantity), price: form.price ? Number(form.price) : null, triggerPrice: form.triggerPrice ? Number(form.triggerPrice) : null, stopPrice: form.stopPrice ? Number(form.stopPrice) : null }) }); notify({ tone: 'success', text: 'Order submission accepted by the execution gateway.' }); await refresh() } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) } }
+  async function reconcile() { setBusy(true); try { await api('/api/v1/execution/orders/reconcile', { method: 'POST' }); await refresh(); notify({ tone: 'success', text: 'Tracked order statuses reconciled.' }) } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) } }
+  async function cancel(orderId) { if (!window.confirm(`Cancel broker order ${orderId}?`)) return; setBusy(true); try { await api(`/api/v1/execution/orders/${encodeURIComponent(orderId)}`, { method: 'DELETE' }); await refresh(); notify({ tone: 'success', text: 'Cancellation request submitted.' }) } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) } }
+  const fields = [['symbol', 'NSE symbol', 'text'], ['quantity', 'Quantity', 'number'], ['price', 'Expected entry (₹)', 'number'], ['stopPrice', 'Hard stop (₹)', 'number'], ['triggerPrice', 'Trigger price (optional)', 'number']]
+  return <Box sx={{ display: 'grid', gap: 2.5 }}><Alert severity={liveGateReady ? 'success' : 'warning'} variant="outlined" sx={{ borderRadius: 3 }}><Typography fontWeight={800}>{liveGateReady ? 'Explicit execution gates are open.' : 'Execution is locked.'}</Typography><Typography variant="body2">Every order requires LIVE profile mode, routing enabled, today’s Kite session, valid risk controls, and confirmation.</Typography><Typography variant="caption" display="block" mt={1}>Automatic signal routing: <b>{automationStatus?.enabled ? 'ENABLED' : 'DISABLED'}</b> · max signal age: {automationStatus?.maxSignalAgeSeconds ?? '—'}s · quantity cap: {automationStatus?.maxOrderQuantity ?? '—'} · broker state: <b>{automationStatus?.uncertainBrokerState ? 'RECONCILIATION REQUIRED' : 'READY'}</b></Typography></Alert>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.2fr .9fr' }, gap: 2.5 }}><Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="CONTROLLED BROKER ROUTING" title="Submit Kite order" action={<Chip label={liveGateReady ? 'GATED LIVE' : 'LOCKED'} color={liveGateReady ? 'success' : 'default'} size="small" />} /><Box component="form" onSubmit={submit} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+      <TextField label="NSE symbol" required value={form.symbol} onChange={e => change('symbol', e.target.value.toUpperCase())} />
+      <TextField select SelectProps={{ native: true }} label="Side" value={form.side} onChange={e => change('side', e.target.value)}><option>BUY</option><option>SELL</option></TextField>
+      <TextField select SelectProps={{ native: true }} label="Order type" value={form.orderType} onChange={e => change('orderType', e.target.value)}><option>LIMIT</option><option>MARKET</option><option>SL</option><option>SL-M</option></TextField>
+      {fields.slice(1).map(([key, label, type]) => <TextField key={key} label={label} type={type} required={key === 'quantity' || key === 'price' || key === 'stopPrice'} value={form[key]} onChange={e => change(key, e.target.value)} />)}
+      <TextField select SelectProps={{ native: true }} label="Product" value={form.product} onChange={e => change('product', e.target.value)}><option>MIS</option><option>CNC</option></TextField>
+      <Button type="submit" variant="contained" disabled={busy} sx={{ gridColumn: { sm: '1 / -1' }, minHeight: 48 }}>{busy ? 'Processing…' : 'Submit controlled order'}</Button>
+    </Box></CardContent></Card><Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="EXECUTION LIFECYCLE" title="Reconciliation is mandatory" /><Typography variant="body2" color="text.secondary" lineHeight={1.8} mb={3}>The broker response is only an acknowledgement. Tracked orders are reconciled into OPEN, PARTIALLY_FILLED, COMPLETE, REJECTED, and CANCELLED states.</Typography><Button variant="outlined" onClick={reconcile} disabled={busy}>↻ Reconcile tracked orders</Button></CardContent></Card></Box>
+    <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2, md: 3 } }}><PageHeading eyebrow="TRACKED ORDERS" title="Execution history" action={<Button variant="outlined" onClick={refresh} disabled={busy}>↻ Refresh</Button>} />{orders.length === 0 ? <Alert severity="info">No broker execution requests are recorded.</Alert> : <TableContainer sx={{ maxHeight: 520, borderRadius: 2, ...insetSx }}><Table stickyHeader size="small"><TableHead><TableRow>{['Order', 'Symbol', 'Side', 'Quantity', 'Filled', 'Status', ''].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{orders.map(order => <TableRow hover key={order.orderId}><TableCell><Typography fontWeight={800}>{order.orderId}</Typography><Typography variant="caption" color="text.secondary">{order.observedAt ? new Date(order.observedAt).toLocaleString() : ''}</Typography></TableCell><TableCell>{order.symbol || '—'}</TableCell><TableCell><Chip label={order.side || '—'} size="small" color={order.side === 'BUY' ? 'success' : 'error'} variant="outlined" /></TableCell><TableCell>{order.quantity}</TableCell><TableCell>{order.filledQuantity}{order.averagePrice ? ` @ ₹${order.averagePrice}` : ''}</TableCell><TableCell><Chip label={order.status} size="small" /></TableCell><TableCell>{['PENDING', 'OPEN', 'PARTIALLY_FILLED'].includes(order.status) && <Button size="small" color="error" onClick={() => cancel(order.orderId)} disabled={busy}>Cancel</Button>}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</CardContent></Card>
+  </Box>
+}
+
+function JournalMUI({ notify }) {
+  const [trades, setTrades] = useState([]); const [summary, setSummary] = useState(null); const [report, setReport] = useState(null); const [loading, setLoading] = useState(true); const [creating, setCreating] = useState(false); const [action, setAction] = useState(null); const [replay, setReplay] = useState(null); const [actionPrice, setActionPrice] = useState(''); const [actionQuantity, setActionQuantity] = useState(''); const [brokerage, setBrokerage] = useState('0'); const [exitReason, setExitReason] = useState('MANUAL'); const [form, setForm] = useState({ symbol: 'SBIN', side: 'BUY', intendedEntryPrice: '', stopPrice: '', intendedQuantity: '', strategy: '', notes: '' })
+  async function api(path, options) { const response = await fetch(`${apiBase}${path}`, options); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || 'Request failed'); return data }
+  async function reload() { setLoading(true); try { const [nextTrades, nextSummary, nextReport] = await Promise.all([api('/api/v1/paper-trades'), api('/api/v1/paper-trades/summary'), api('/api/v1/paper-trades/report')]); setTrades(nextTrades); setSummary(nextSummary); setReport(nextReport) } catch (error) { notify({ tone: 'error', text: `Unable to load journal: ${error.message}` }) } finally { setLoading(false) } }
+  useEffect(() => { reload() }, [])
+  async function createIntent(event) { event.preventDefault(); setCreating(true); try { await api('/api/v1/paper-trades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, symbol: form.symbol.trim().toUpperCase(), intendedEntryPrice: Number(form.intendedEntryPrice), stopPrice: Number(form.stopPrice), intendedQuantity: Number(form.intendedQuantity) }) }); setForm(current => ({ ...current, intendedEntryPrice: '', stopPrice: '', intendedQuantity: '', notes: '' })); notify({ tone: 'success', text: 'Intent recorded. It is not treated as a filled trade.' }); await reload() } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setCreating(false) } }
+  function startAction(type, trade) { setAction({ type, trade }); setActionPrice(type === 'fill' ? trade.intendedEntryPrice : ''); setActionQuantity(type === 'fill' ? trade.intendedQuantity : ''); setBrokerage('0'); setExitReason('MANUAL') }
+  async function submitAction(event) { event.preventDefault(); try { const { type, trade } = action; if (type === 'fill') await api(`/api/v1/paper-trades/${trade.id}/fill`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actualEntryPrice: Number(actionPrice), filledQuantity: Number(actionQuantity) }) }); if (type === 'close') await api(`/api/v1/paper-trades/${trade.id}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actualExitPrice: Number(actionPrice), brokerage: Number(brokerage), exitReason }) }); if (type === 'cancel') await api(`/api/v1/paper-trades/${trade.id}/cancel`, { method: 'POST' }); notify({ tone: 'success', text: type === 'fill' ? 'Actual fill recorded.' : type === 'close' ? 'Exit and realised P&L recorded.' : 'Intent cancelled.' }); setAction(null); await reload() } catch (error) { notify({ tone: 'error', text: error.message }) } }
+  async function openReplay(trade) { try { setReplay({ trade, events: await api(`/api/v1/paper-trades/${trade.id}/replay`) }) } catch (error) { notify({ tone: 'error', text: error.message }) } }
+  const metrics = [['Today’s realised P&L', money(summary?.realisedPnl), 'After recorded charges'], ['Active risk', money(summary?.activeRisk), 'Intended + open trade risk'], ['Remaining daily capacity', money(summary?.remainingDailyRiskCapacity), `Of ${money(summary?.maxDailyLoss)} daily limit`], ['Session activity', `${summary?.initiatedTrades || 0} intents / ${summary?.openPositions || 0} open`, 'Today’s journal'], ['Win rate', `${report?.winRate || 0}%`, `${report?.winningTrades || 0} wins / ${report?.closedTrades || 0} closed`], ['Entry slippage', money(report?.totalSlippage), 'Adverse slippage is positive']]
+  const setField = (key, value) => setForm(current => ({ ...current, [key]: value }))
+  return <Box sx={{ display: 'grid', gap: 2.5 }}><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(6,1fr)' }, gap: 1.5 }}>{metrics.map(([label, value, detail]) => <Card key={label} sx={{ ...pageCardSx, minHeight: 116 }}><CardContent sx={{ p: 1.8 }}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="h6" mt={.7}>{value}</Typography><Typography variant="caption" color="text.secondary">{detail}</Typography></CardContent></Card>)}</Box>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.2fr .8fr' }, gap: 2.5 }}><Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="RECORD DECISION" title="New trade intent" description="This captures the planned trade. It does not create a fill." /><Box component="form" onSubmit={createIntent} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}><TextField label="NSE symbol" value={form.symbol} onChange={e => setField('symbol', e.target.value.toUpperCase())} /><TextField select SelectProps={{ native: true }} label="Side" value={form.side} onChange={e => setField('side', e.target.value)}><option>BUY</option><option>SELL</option></TextField><TextField required label="Intended entry (₹)" type="number" value={form.intendedEntryPrice} onChange={e => setField('intendedEntryPrice', e.target.value)} /><TextField required label="Hard stop (₹)" type="number" value={form.stopPrice} onChange={e => setField('stopPrice', e.target.value)} /><TextField required label="Intended quantity" type="number" value={form.intendedQuantity} onChange={e => setField('intendedQuantity', e.target.value)} /><TextField label="Strategy label" placeholder="Opening-range breakout" value={form.strategy} onChange={e => setField('strategy', e.target.value)} /><TextField multiline minRows={3} label="Notes" placeholder="Why this setup qualified…" value={form.notes} onChange={e => setField('notes', e.target.value)} sx={{ gridColumn: { sm: '1 / -1' } }} /><Button type="submit" variant="contained" disabled={creating} sx={{ gridColumn: { sm: '1 / -1' }, minHeight: 48 }}>{creating ? 'Saving…' : 'Record intended trade →'}</Button></Box></CardContent></Card><Card sx={{ ...pageCardSx, background: 'linear-gradient(145deg,#e5f7f7,#eaf0f8)' }}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="LIFECYCLE" title="Intent ≠ fill" /><Stack gap={2}><Typography variant="body2"><b>INTENDED</b> — approved plan and proposed risk.</Typography><Typography variant="body2"><b>OPEN</b> — record actual fill price and quantity.</Typography><Typography variant="body2"><b>CLOSED</b> — record actual exit, charges, and P&amp;L.</Typography></Stack><Typography variant="body2" color="text.secondary" mt={3}>There is no assumed fill price in this journal.</Typography></CardContent></Card></Box>
+    <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2, md: 3 } }}><PageHeading eyebrow="TODAY" title="Trade history" action={<Stack direction="row" gap={1}><Button variant="outlined" onClick={reload}>↻ Refresh</Button><Button variant="outlined" onClick={() => window.open(`${apiBase}/api/v1/paper-trades/export`, '_blank')}>↓ Export CSV</Button></Stack>} />{loading ? <LinearProgress /> : trades.length === 0 ? <Alert severity="info">No intents recorded today. Start by recording a risk-checked setup.</Alert> : <TableContainer sx={{ maxHeight: 560, borderRadius: 2, ...insetSx }}><Table stickyHeader size="small"><TableHead><TableRow>{['Symbol', 'Side', 'Status', 'Intended', 'Actual', 'Slippage', 'Net P&L', ''].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{trades.map(trade => <TableRow hover key={trade.id}><TableCell><Typography fontWeight={800}>{trade.symbol}</Typography><Typography variant="caption" color="text.secondary">{trade.strategy || 'No strategy label'}</Typography></TableCell><TableCell><Chip label={trade.side} size="small" color={trade.side === 'BUY' ? 'success' : 'error'} variant="outlined" /></TableCell><TableCell><Chip label={trade.status} size="small" /></TableCell><TableCell>₹{trade.intendedEntryPrice} × {trade.intendedQuantity}<Typography variant="caption" display="block">Stop ₹{trade.stopPrice}</Typography></TableCell><TableCell>{trade.actualEntryPrice ? <>₹{trade.actualEntryPrice} × {trade.filledQuantity}<Typography variant="caption" display="block">{trade.actualExitPrice ? `Exit ₹${trade.actualExitPrice}` : 'Open position'}</Typography></> : '—'}</TableCell><TableCell>{trade.slippageAmount == null ? '—' : money(trade.slippageAmount)}<Typography variant="caption" display="block">{trade.slippagePerUnit == null ? '' : `₹${trade.slippagePerUnit}/unit`}</Typography></TableCell><TableCell color={Number(trade.netPnl) < 0 ? 'error' : 'success'}>{trade.netPnl == null ? '—' : money(trade.netPnl)}</TableCell><TableCell><Stack direction="row" gap={.5} flexWrap="wrap"><Button size="small" onClick={() => openReplay(trade)}>Replay</Button>{trade.status === 'INTENDED' && <><Button size="small" onClick={() => startAction('fill', trade)}>Fill</Button><Button size="small" color="error" onClick={() => { if (window.confirm(`Cancel ${trade.symbol} intent?`)) startAction('cancel', trade) }}>Cancel</Button></>}{trade.status === 'OPEN' && <Button size="small" onClick={() => startAction('close', trade)}>Close</Button>}</Stack></TableCell></TableRow>)}</TableBody></Table></TableContainer>}</CardContent></Card>
+    <Dialog open={Boolean(action)} onClose={() => setAction(null)} fullWidth maxWidth="xs"><Box component="form" onSubmit={submitAction}><DialogTitle>{action?.type === 'fill' ? 'Record actual fill' : action?.type === 'close' ? 'Record actual exit' : 'Cancel trade intent'}{action && <Typography variant="caption" display="block" color="text.secondary">{action.trade.symbol}</Typography>}</DialogTitle><DialogContent>{action?.type === 'cancel' ? <Typography color="text.secondary">Confirm that no fill occurred. This action cannot be reversed.</Typography> : <Stack gap={2} pt={1}><TextField autoFocus required label={action?.type === 'fill' ? 'Actual entry price (₹)' : 'Actual exit price (₹)'} type="number" value={actionPrice} onChange={e => setActionPrice(e.target.value)} />{action?.type === 'fill' && <TextField required label="Actual filled quantity" type="number" inputProps={{ min: 1, max: action.trade.intendedQuantity }} value={actionQuantity} onChange={e => setActionQuantity(e.target.value)} />}{action?.type === 'close' && <><TextField required label="Brokerage and charges (₹)" type="number" value={brokerage} onChange={e => setBrokerage(e.target.value)} /><TextField select SelectProps={{ native: true }} label="Exit reason" value={exitReason} onChange={e => setExitReason(e.target.value)}><option>STOP_LOSS</option><option>TARGET</option><option>MANUAL</option><option>END_OF_DAY</option></TextField></>}</Stack>}</DialogContent><DialogActions><Button onClick={() => setAction(null)}>Close</Button><Button type="submit" variant="contained" color={action?.type === 'cancel' ? 'error' : 'primary'}>{action?.type === 'fill' ? 'Confirm actual fill' : action?.type === 'close' ? 'Record exit and P&L' : 'Confirm cancellation'}</Button></DialogActions></Box></Dialog>
+    <Dialog open={Boolean(replay)} onClose={() => setReplay(null)} fullWidth maxWidth="sm"><DialogTitle>Recorded lifecycle<Typography variant="caption" display="block" color="text.secondary">{replay?.trade.symbol} · replay is read-only</Typography></DialogTitle><DialogContent><Stack gap={1.5}>{replay?.events.map((event, index) => <Paper key={`${event.event}-${index}`} sx={{ ...insetSx, p: 1.5 }}><Typography fontWeight={800}>{index + 1}. {event.event.replaceAll('_', ' ')}</Typography><Typography variant="caption" color="text.secondary">{event.occurredAt ? new Date(event.occurredAt).toLocaleString() : '—'} · {event.details}</Typography>{event.netPnl != null && <Typography variant="caption" display="block">Gross {money(event.grossPnl)} · Charges {money(event.charges)} · Net {money(event.netPnl)}</Typography>}</Paper>)}</Stack></DialogContent><DialogActions><Button onClick={() => setReplay(null)}>Close</Button></DialogActions></Dialog>
+  </Box>
 }
 
 function Metric({ label, value, detail, accent = '' }) { return <article className={`metric-card ${accent}`}><p>{label}</p><strong>{value}</strong><span>{detail}</span></article> }
@@ -337,15 +383,7 @@ function LoginPage({ onSuccess }) {
       onSuccess()
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
-  return <main className="auth-loading"><form className="login-card" onSubmit={submit}>
-    <div className="login-brand"><span className="brand-mark">S</span><strong>Signal<span>Desk</span></strong></div>
-    <p className="eyebrow">SECURE ACCESS</p><h1>Welcome back</h1><p className="login-copy">Sign in to continue to your private market research workspace.</p>
-    {error && <div className="login-error">{error}</div>}
-    <label className="field"><span>Username</span><input autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required /></label>
-    <label className="field"><span>Password</span><input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
-    <button className="primary full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <span>→</span></button>
-    <small className="login-foot">Private session protected · broker execution remains gated</small>
-  </form></main>
+  return <ThemeProvider theme={marketTheme}><Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 3, bgcolor: '#edf2f8' }}><Card sx={{ ...pageCardSx, width: 'min(430px,100%)' }}><CardContent sx={{ p: { xs: 3, sm: 4 } }}><Stack gap={2}><Stack direction="row" gap={1.2} alignItems="center"><Box sx={{ width: 36, height: 36, display: 'grid', placeItems: 'center', borderRadius: 2, color: '#fff', fontWeight: 800, bgcolor: 'primary.main', boxShadow: '4px 4px 9px #c5cfdd, -4px -4px 9px #fff' }}>S</Box><Typography variant="h6">Signal<span style={{ color: '#00a9ac' }}>Desk</span></Typography></Stack><Typography variant="overline" color="text.secondary" letterSpacing=".14em">SECURE ACCESS</Typography><Typography variant="h4">Welcome back</Typography><Typography variant="body2" color="text.secondary">Sign in to continue to your private market research workspace.</Typography>{error && <Alert severity="error">{error}</Alert>}<Box component="form" onSubmit={submit} sx={{ display: 'grid', gap: 2 }}><TextField label="Username" autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required /><TextField label="Password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /><Button type="submit" variant="contained" disabled={busy} sx={{ minHeight: 48 }}>{busy ? 'Signing in…' : 'Sign in →'}</Button></Box><Typography variant="caption" textAlign="center" color="text.secondary">Private session protected · broker execution remains gated</Typography></Stack></CardContent></Card></Box></ThemeProvider>
 }
 function MenuGroup({ label, icon, open, active, onToggle, children }) {
   return <div className={`menu-group ${active ? 'group-active' : ''}`}>
