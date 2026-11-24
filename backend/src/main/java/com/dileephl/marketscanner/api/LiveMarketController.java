@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /** Read-only live market-data orchestration. No broker order endpoint exists here. */
 @RestController
@@ -50,6 +51,13 @@ public class LiveMarketController {
         return ResponseEntity.ok(liveMarketService.recentSignals(symbol, type, limit));
     }
     @GetMapping("/candles") public ResponseEntity<List<LiveCandleView>> candles() { return ResponseEntity.ok(liveMarketService.recentCandles()); }
+    @GetMapping("/history")
+    public ResponseEntity<Map<String, Object>> history(@RequestParam(defaultValue = "7") int days) {
+        return ResponseEntity.ok(Map.of(
+                "days", Math.max(1, Math.min(days, 7)),
+                "signals", liveMarketService.historySignals(days),
+                "candles", liveMarketService.historyCandles(days)));
+    }
 
     public record AddWatchlistRequest(@Positive long instrumentToken) { }
 }
