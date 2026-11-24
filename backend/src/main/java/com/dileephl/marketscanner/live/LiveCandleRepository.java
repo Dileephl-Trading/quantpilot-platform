@@ -9,4 +9,5 @@ import java.util.UUID;
 public interface LiveCandleRepository extends JpaRepository<LiveCandleEntity, UUID> {
     boolean existsByProviderAndInstrumentTokenAndCandleStart(String provider, long instrumentToken, OffsetDateTime candleStart);
     List<LiveCandleEntity> findTop100ByOrderByCandleStartDesc();
+    List<LiveCandleEntity> findByGeneratedAtAfterOrderByGeneratedAtDesc(OffsetDateTime cutoff);
 }
