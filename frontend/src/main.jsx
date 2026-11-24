@@ -83,7 +83,9 @@ function App() {
     }
   }
 
-  useEffect(() => { loadProfile() }, [])
+  useEffect(() => {
+    if (authState === 'authenticated') loadProfile()
+  }, [authState])
 
   async function loadKiteStatus() {
     try {
@@ -93,17 +95,20 @@ function App() {
     }
   }
 
-  useEffect(() => { loadKiteStatus() }, [])
+  useEffect(() => {
+    if (authState === 'authenticated') loadKiteStatus()
+  }, [authState])
 
   async function loadMarketSession() {
     try { setMarketSession(await request('/api/v1/market-session/status')) } catch (_) { setMarketSession(null) }
   }
 
   useEffect(() => {
+    if (authState !== 'authenticated') return undefined
     loadMarketSession()
     const timer = window.setInterval(loadMarketSession, 30000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [authState])
 
   async function saveProfile(event) {
     event.preventDefault()
