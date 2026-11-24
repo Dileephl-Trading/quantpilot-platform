@@ -29,5 +29,5 @@ public class WatchlistEntryEntity {
     public boolean isEnabled() { return enabled; }
     public OffsetDateTime getAddedAt() { return addedAt; }
     public void disable() { enabled = false; }
-    public void enable() { enabled = true; }
+    public void enable() { enabled = true; addedAt = OffsetDateTime.now(); }
 }
