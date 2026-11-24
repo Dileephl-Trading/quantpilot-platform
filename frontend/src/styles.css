@@ -74,6 +74,61 @@ body { background: var(--app-bg); color: var(--app-text); }
 .automation-state { color: #9fb2c7; font-size: 11px; margin-top: 7px; }.automation-state b { color: #f2ca82; letter-spacing: .04em; }
 @media (max-width: 760px) { .execution-page .field-grid { grid-template-columns: 1fr; } }
 
+/* Light neumorphic workspace theme */
+:root {
+  --neo-bg: #e7edf5;
+  --neo-surface: #e7edf5;
+  --neo-text: #263754;
+  --neo-muted: #71819d;
+  --neo-accent: #14a9b8;
+  --neo-shadow-dark: #c5cfdd;
+  --neo-shadow-light: #ffffff;
+}
+html, body, #root { background: var(--neo-bg); color: var(--neo-text); }
+body { min-width: 320px; }
+.app-shell { background: var(--neo-bg); color: var(--neo-text); }
+.sidebar { background: var(--neo-surface); border-right: 0; box-shadow: 12px 0 28px var(--neo-shadow-dark); color: var(--neo-text); }
+.brand { color: var(--neo-text); }
+.brand > span:last-child span { color: #00b7a8; }
+.brand-mark { background: linear-gradient(145deg, #20bcc5, #0d9dad); color: #fff; box-shadow: 4px 4px 8px #c3cdda, -4px -4px 8px #fff; }
+.sidebar-label, .eyebrow { color: #8090aa; }
+.workspace-nav { display: grid; gap: 5px; }
+.nav-link, .menu-group-toggle { color: #60718e; background: transparent; border: 1px solid transparent; }
+.nav-link:hover, .menu-group-toggle:hover { color: var(--neo-accent); background: var(--neo-surface); box-shadow: inset 2px 2px 5px var(--neo-shadow-dark), inset -2px -2px 5px var(--neo-shadow-light); }
+.nav-link.active, .menu-group.group-active > .menu-group-toggle { color: #078ea0; background: var(--neo-surface); box-shadow: inset 3px 3px 7px var(--neo-shadow-dark), inset -3px -3px 7px var(--neo-shadow-light); }
+.menu-group-toggle { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; padding: 11px 12px; border-radius: 9px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.menu-group-icon { font-size: 17px; width: 18px; }
+.menu-chevron { margin-left: auto; font-size: 18px; line-height: 1; }
+.submenu { margin: 2px 0 4px 19px; padding-left: 9px; border-left: 1px solid #c8d3e1; display: grid; gap: 3px; }
+.submenu-link { padding: 9px 10px; font-size: 12px; font-weight: 600; }
+.submenu-link span { width: 22px; font-size: 14px; }
+.sidebar-footer { border-top-color: #d0d9e5; color: var(--neo-muted); }
+.main-content { color: var(--neo-text); }
+.topbar { border-bottom-color: #d1dae6; }
+.topbar h1, .panel h2, .metric-card strong { color: var(--neo-text); }
+.connection, .session-chip { color: #168896; background: var(--neo-surface); border-color: transparent; box-shadow: 4px 4px 9px var(--neo-shadow-dark), -4px -4px 9px var(--neo-shadow-light); }
+.metric-card, .panel, .loading-card { background: var(--neo-surface); border: 0; box-shadow: 8px 8px 18px var(--neo-shadow-dark), -8px -8px 18px var(--neo-shadow-light); }
+.safety-banner, .quick-action { background: var(--neo-surface); border: 0; box-shadow: 7px 7px 16px var(--neo-shadow-dark), -7px -7px 16px var(--neo-shadow-light); }
+.safety-banner strong, .safety-banner p, .panel-heading p:not(.eyebrow), .quick-action p:not(.eyebrow) { color: var(--neo-muted); }
+.field input, .field select, .intent-form textarea, .date-field input { color: var(--neo-text); background: var(--neo-surface); border: 0; box-shadow: inset 3px 3px 7px var(--neo-shadow-dark), inset -3px -3px 7px var(--neo-shadow-light); }
+.calculated-risk, .live-grid > div, .contract-grid > div, .instrument-option, .verification-result > div { background: var(--neo-surface); border: 0; box-shadow: inset 3px 3px 7px var(--neo-shadow-dark), inset -3px -3px 7px var(--neo-shadow-light); }
+.primary { background: linear-gradient(145deg, #19b9c4, #0796a7); color: #fff; box-shadow: 5px 5px 10px #c2ccd9, -5px -5px 10px #fff; }
+.primary:hover { background: linear-gradient(145deg, #20c6cf, #0ba1b1); }
+.ghost { color: #078ea0; background: var(--neo-surface); border: 0; box-shadow: 4px 4px 9px var(--neo-shadow-dark), -4px -4px 9px var(--neo-shadow-light); }
+.badge { background: #e4dff2; color: #5e478c; }
+.notice { box-shadow: 5px 5px 12px var(--neo-shadow-dark), -5px -5px 12px var(--neo-shadow-light); }
+
+@media (max-width: 610px) {
+  .sidebar { box-shadow: 0 8px 18px var(--neo-shadow-dark); }
+  .submenu { margin-left: 12px; }
+  .menu-group-toggle { min-height: 38px; }
+}
+
+.auth-loading { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--neo-bg); color: var(--neo-text); }
+.login-card { width: min(430px, 100%); padding: 34px; border-radius: 24px; background: var(--neo-surface); box-shadow: 14px 14px 30px var(--neo-shadow-dark), -14px -14px 30px var(--neo-shadow-light); display: grid; gap: 15px; }
+.login-brand { display: flex; align-items: center; gap: 11px; font-size: 21px; margin-bottom: 8px; }.login-brand strong span { color: #00a9ac; }
+.login-card h1 { margin: 0; color: var(--neo-text); font-size: 30px; }.login-copy { color: var(--neo-muted); font-size: 12px; line-height: 1.6; margin: -4px 0 8px; }.login-foot { color: #8293aa; font-size: 10px; text-align: center; }.login-error { color: #b34d58; background: #f5dfe2; padding: 10px 12px; border-radius: 9px; font-size: 12px; box-shadow: inset 2px 2px 5px #dec8cc, inset -2px -2px 5px #fff; }
+
 /* Mobile layout: keep the brand, navigation and content usable without desktop
    assumptions. Navigation remains horizontally scrollable, while each page
    keeps a single readable column and touch-sized controls. */
