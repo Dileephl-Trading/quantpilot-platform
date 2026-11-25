@@ -97,12 +97,13 @@ public class LiveMarketService {
 
     /**
      * Ensures the default banking/Bank-Nifty watchlist is present for the
-     * current trading session. These rows are session-managed and are disabled
-     * at the session boundary; user-added rows remain enabled across days.
+     * current trading session. These rows are session-managed and are enabled
+     * at the start of each session; all active rows expire at the boundary.
      */
     @Transactional
     public List<LiveWatchlistView> ensureDefaultBankNifty() {
         String provider = liveFeed.providerName();
+        expirePreviousDayUserEntries(provider);
         Set<String> defaults = SectorClassifier.symbols("BANKING");
         List<MarketInstrumentEntity> instruments = instrumentRepository
                 .findByProviderAndExchangeOrderByTradingsymbolAsc(provider, "NSE");
@@ -156,11 +157,11 @@ public class LiveMarketService {
     }
 
     private List<WatchlistEntryEntity> currentSessionEntries() {
-        // User-added entries are configuration and persist across trading days.
-        // Session-managed default banking entries are re-enabled by the server
-        // supervisor at the next valid session. Current-session signal/candle
-        // queries are independently bounded by sessionStart(), so yesterday's
-        // observations never leak into today's monitor view.
+        // The enabled watchlist is the current-session configuration. All rows
+        // expire at the session boundary; the supervisor re-enables only the
+        // default banking rows on the next valid session. Current-session
+        // signal/candle queries are independently bounded by sessionStart(),
+        // so yesterday's observations never leak into today's monitor view.
         return watchlistRepository.findByProviderAndEnabledTrueOrderBySymbolAsc(liveFeed.providerName());
     }
 
@@ -192,23 +193,30 @@ public class LiveMarketService {
         stopFeed();
     }
 
-    /**
-     * Ends the trading session and removes only the automatically managed
-     * defaults. User-added watchlist entries remain configured for the next
-     * trading day and are included with the fresh default set.
-     */
+    /** Ends the trading session and expires every active watchlist row. */
     @Transactional
     public synchronized int endSession() {
         stopFeed();
         int disabled = 0;
-        for (WatchlistEntryEntity entry : watchlistRepository.findByProviderAndAutoManagedTrue(liveFeed.providerName())) {
-            if (entry.isEnabled()) {
-                entry.disable();
-                watchlistRepository.save(entry);
-                disabled++;
-            }
+        for (WatchlistEntryEntity entry : watchlistRepository
+                .findByProviderAndEnabledTrueOrderBySymbolAsc(liveFeed.providerName())) {
+            entry.disable();
+            watchlistRepository.save(entry);
+            disabled++;
         }
         return disabled;
+    }
+
+    private int expirePreviousDayUserEntries(String provider) {
+        OffsetDateTime startOfToday = today().atStartOfDay().atOffset(INDIA_OFFSET);
+        int expired = 0;
+        for (WatchlistEntryEntity entry : watchlistRepository
+                .findByProviderAndEnabledTrueAndAutoManagedFalseAndAddedAtBefore(provider, startOfToday)) {
+            entry.disable();
+            watchlistRepository.save(entry);
+            expired++;
+        }
+        return expired;
     }
 
     private void assertCapacityForNewEntry(String provider) {

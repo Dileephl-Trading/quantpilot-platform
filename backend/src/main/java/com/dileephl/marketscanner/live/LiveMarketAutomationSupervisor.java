@@ -27,7 +27,7 @@ public class LiveMarketAutomationSupervisor {
     private String lastFailure;
     private LocalDate lastStartedDate;
     private LocalDate defaultsPreparedDate;
-    private LocalDate defaultsClearedDate;
+    private LocalDate watchlistClearedDate;
 
     public LiveMarketAutomationSupervisor(LiveMarketService liveMarket, KiteConnectProperties kite,
                                           KiteAuthService auth, MarketSessionService sessions,
@@ -47,8 +47,8 @@ public class LiveMarketAutomationSupervisor {
         LiveFeedStatus status = liveMarket.status();
         if (!sessions.isOpenNow()) {
             int disabled = liveMarket.endSession();
-            if (!today().equals(defaultsClearedDate)) {
-                defaultsClearedDate = today();
+            if (!today().equals(watchlistClearedDate)) {
+                watchlistClearedDate = today();
                 defaultsPreparedDate = null;
             }
             if (!"STOPPED".equalsIgnoreCase(status.state())) {
@@ -56,8 +56,8 @@ public class LiveMarketAutomationSupervisor {
                         sessions.status().reason());
             }
             if (disabled > 0) {
-                audit.record("LIVE_DEFAULT_WATCHLIST_CLEARED", "LIVE_MONITOR", "GLOBAL",
-                        "Disabled " + disabled + " automatically managed banking symbols for the next trading session");
+                audit.record("LIVE_WATCHLIST_CLEARED_SESSION_BOUNDARY", "LIVE_MONITOR", "GLOBAL",
+                        "Expired " + disabled + " active watchlist symbols at the session boundary; defaults will be prepared next session");
             }
             return;
         }
@@ -73,7 +73,7 @@ public class LiveMarketAutomationSupervisor {
             try {
                 List<LiveWatchlistView> prepared = liveMarket.ensureDefaultBankNifty();
                 defaultsPreparedDate = today();
-                defaultsClearedDate = null;
+                watchlistClearedDate = null;
                 audit.record("LIVE_DEFAULT_WATCHLIST_PREPARED", "LIVE_MONITOR", "GLOBAL",
                         "Prepared the default banking watchlist with " + prepared.size() + " enabled symbols");
             } catch (RuntimeException error) {
