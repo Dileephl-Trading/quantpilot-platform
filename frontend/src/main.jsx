@@ -63,6 +63,24 @@ function money(value) {
   }).format(Number(value || 0))
 }
 
+// Google Material Symbols' query_stats mark is embedded locally so the logo
+// remains available even when external font requests are blocked by CSP.
+function QuantPilotMark({ size = 'small' }) {
+  const dimension = size === 'large' ? 52 : size === 'medium' ? 42 : 34
+  const letterSize = size === 'large' ? 23 : size === 'medium' ? 19 : 16
+  return <Box component="span" aria-label="QuantPilotPlatform" sx={{ position: 'relative', display: 'grid', placeItems: 'center', flex: '0 0 auto', width: dimension, height: dimension, overflow: 'hidden', borderRadius: '10px', color: '#fff', background: 'linear-gradient(145deg, #13b8c1, #078f9f)', boxShadow: '5px 5px 10px #c3cedc, -5px -5px 10px #fff' }}>
+    <svg viewBox="0 0 24 24" aria-hidden="true" style={{ position: 'absolute', inset: 3, width: 'calc(100% - 6px)', height: 'calc(100% - 6px)', opacity: .24 }}><path fill="currentColor" d="m2.225 13.7-1.225-.9 4.825-7.75 3.125 3.65 4.125-6.7 3.125 4.65 3.575-5.65 1.2.875-4.75 7.525-3.1-4.6-3.975 6.45-3.125-3.65L2.225 13.7Zm12.35 4.8q1.2 0 2.063-.837T17.5 15.625q0-1.225-.85-2.075t-2.075-.85q-1.2 0-2.037.863T11.7 15.625q0 1.2.838 2.038T14.575 18.5ZM19.925 22 17.125 19.2q-.55.375-1.187.588T14.575 20q-1.825 0-3.1-1.275t-1.275-3.1q0-1.825 1.275-3.125t3.1-1.3q1.85 0 3.138 1.288T19 15.625q0 .725-.212 1.363T18.175 18.175l2.8 2.775-1.05 1.05Z" /></svg>
+    <Typography component="span" sx={{ position: 'relative', color: 'inherit', fontSize: letterSize, lineHeight: 1, fontWeight: 850, letterSpacing: '-.04em' }}>Q</Typography>
+  </Box>
+}
+
+function QuantPilotWordmark({ login = false }) {
+  return <Box component="span" sx={{ display: 'inline-flex', flexDirection: 'column', minWidth: 0 }}>
+    <Typography component="span" sx={{ color: '#223451', fontSize: login ? '1.3rem' : '1.15rem', fontWeight: 850, letterSpacing: '-.045em', lineHeight: 1.05, whiteSpace: 'nowrap' }}>QuantPilot<span style={{ color: '#078f9f' }}>Platform</span></Typography>
+    {login && <Typography component="span" sx={{ mt: .45, color: 'text.secondary', fontSize: '.62rem', fontWeight: 700, letterSpacing: '.13em', lineHeight: 1.1 }}>PRIVATE MARKET WORKSPACE</Typography>}
+  </Box>
+}
+
 function App() {
   const [profile, setProfile] = useState(null)
   const [draft, setDraft] = useState(null)
@@ -226,12 +244,12 @@ function App() {
 
   if (authState === 'checking') return <ThemeProvider theme={marketTheme}><Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: '#edf2f8' }}><Stack alignItems="center" gap={2}><CircularProgress size={34} /><Typography color="text.secondary">Checking secure session…</Typography></Stack></Box></ThemeProvider>
   if (authState === 'unauthenticated') return <LoginPage message={authError} onSuccess={() => { setAuthError(''); setAuthState('authenticated'); loadProfile(); loadKiteStatus() }} />
-  if (authState === 'unavailable') return <ThemeProvider theme={marketTheme}><Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 3, bgcolor: '#edf2f8' }}><Card sx={{ ...pageCardSx, width: 'min(430px,100%)' }}><CardContent><Stack gap={2}><Typography variant="h5">Signal<span style={{ color: '#00a9ac' }}>Desk</span></Typography><Alert severity="error">Authentication service is unavailable.</Alert><Typography variant="caption" color="text.secondary">{authError}</Typography><Button variant="contained" onClick={() => window.location.reload()}>Retry</Button></Stack></CardContent></Card></Box></ThemeProvider>
+  if (authState === 'unavailable') return <ThemeProvider theme={marketTheme}><Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 3, bgcolor: '#edf2f8' }}><Card sx={{ ...pageCardSx, width: 'min(430px,100%)' }}><CardContent><Stack gap={2}><QuantPilotWordmark login /><Alert severity="error">Authentication service is unavailable.</Alert><Typography variant="caption" color="text.secondary">{authError}</Typography><Button variant="contained" onClick={() => window.location.reload()}>Retry</Button></Stack></CardContent></Card></Box></ThemeProvider>
 
   return <ThemeProvider theme={marketTheme}><Box className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#overview" onClick={() => setActive('overview')}>
-        <span className="brand-mark">S</span><span>Signal<span>Desk</span></span>
+        <QuantPilotMark /><QuantPilotWordmark />
       </a>
       <p className="sidebar-label">WORKSPACE</p>
       <nav className="workspace-nav">
@@ -419,11 +437,8 @@ function LoginPage({ onSuccess, message = '' }) {
         <CardContent sx={{ p: { xs: 3, sm: 4.5 } }}>
           <Stack gap={{ xs: 2.5, sm: 3 }}>
             <Stack direction="row" gap={1.5} alignItems="center">
-              <Box sx={{ width: 46, height: 46, display: 'grid', placeItems: 'center', borderRadius: '10px', color: '#fff', fontSize: 20, fontWeight: 800, bgcolor: 'primary.main', boxShadow: '4px 4px 9px #c5cfdd, -4px -4px 9px #fff' }}>S</Box>
-              <Box>
-                <Typography variant="h6" lineHeight={1.1}>Signal<span style={{ color: '#00a9ac' }}>Desk</span></Typography>
-                <Typography variant="caption" color="text.secondary" letterSpacing=".12em">PRIVATE MARKET WORKSPACE</Typography>
-              </Box>
+              <QuantPilotMark size="large" />
+              <QuantPilotWordmark login />
             </Stack>
             <Box>
               <Typography variant="overline" color="text.secondary" letterSpacing=".16em">SECURE ACCESS</Typography>
