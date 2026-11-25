@@ -5,6 +5,15 @@ import './styles.css'
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || ''
 
+async function apiFetch(path, options = {}) {
+  const { suppressAuthRedirect = false, ...fetchOptions } = options
+  const response = await fetch(`${apiBase}${path}`, { credentials: 'include', ...fetchOptions })
+  if (!suppressAuthRedirect && (response.status === 401 || response.status === 403) && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('quantpilot:auth-expired'))
+  }
+  return response
+}
+
 const marketTheme = createTheme({
   palette: {
     mode: 'light',
@@ -74,6 +83,20 @@ function App() {
   const [authState, setAuthState] = useState('checking')
   const [authError, setAuthError] = useState('')
 
+  useEffect(() => {
+    function handleSessionExpired() {
+      setProfile(null)
+      setDraft(null)
+      setKiteStatus(null)
+      setMarketSession(null)
+      setNotice({ tone: 'error', text: 'Your session has expired. Please sign in again.' })
+      setAuthError('Your session has expired. Please sign in again.')
+      setAuthState('unauthenticated')
+    }
+    window.addEventListener('quantpilot:auth-expired', handleSessionExpired)
+    return () => window.removeEventListener('quantpilot:auth-expired', handleSessionExpired)
+  }, [])
+
   const localRisk = useMemo(() => {
     const entry = Number(order.entryPrice)
     const stop = Number(order.stopPrice)
@@ -83,7 +106,7 @@ function App() {
   }, [order])
 
   async function request(path, options) {
-    const response = await fetch(`${apiBase}${path}`, options)
+    const response = await apiFetch(path, options)
     const data = await response.json().catch(() => ({}))
     if (!response.ok) {
       const error = new Error(data.message || data.error || 'Request failed')
@@ -94,7 +117,7 @@ function App() {
   }
 
   useEffect(() => {
-    request('/api/v1/auth/me')
+    request('/api/v1/auth/me', { suppressAuthRedirect: true })
       .then(() => setAuthState('authenticated'))
       .catch(error => {
         if (error.status === 401 || error.status === 403) setAuthState('unauthenticated')
@@ -202,7 +225,7 @@ function App() {
   useEffect(() => { if (active === 'execution' && authState === 'authenticated') refreshExecution() }, [active, authState])
 
   if (authState === 'checking') return <ThemeProvider theme={marketTheme}><Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: '#edf2f8' }}><Stack alignItems="center" gap={2}><CircularProgress size={34} /><Typography color="text.secondary">Checking secure session…</Typography></Stack></Box></ThemeProvider>
-  if (authState === 'unauthenticated') return <LoginPage onSuccess={() => { setAuthError(''); setAuthState('authenticated'); loadProfile(); loadKiteStatus() }} />
+  if (authState === 'unauthenticated') return <LoginPage message={authError} onSuccess={() => { setAuthError(''); setAuthState('authenticated'); loadProfile(); loadKiteStatus() }} />
   if (authState === 'unavailable') return <ThemeProvider theme={marketTheme}><Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 3, bgcolor: '#edf2f8' }}><Card sx={{ ...pageCardSx, width: 'min(430px,100%)' }}><CardContent><Stack gap={2}><Typography variant="h5">Signal<span style={{ color: '#00a9ac' }}>Desk</span></Typography><Alert severity="error">Authentication service is unavailable.</Alert><Typography variant="caption" color="text.secondary">{authError}</Typography><Button variant="contained" onClick={() => window.location.reload()}>Retry</Button></Stack></CardContent></Card></Box></ThemeProvider>
 
   return <ThemeProvider theme={marketTheme}><Box className="app-shell">
@@ -327,7 +350,7 @@ function ProfileMUI({ draft, changeDraft, saveProfile, saving, savedAt }) {
 function AuditLogMUI({ notify }) {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(false)
-  async function refresh() { setLoading(true); try { const response = await fetch(`${apiBase}/api/v1/audit/events?limit=100`); const data = await response.json().catch(() => []); if (!response.ok) throw new Error(data.message || 'Audit events could not be loaded'); setEvents(data) } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setLoading(false) } }
+  async function refresh() { setLoading(true); try { const response = await apiFetch('/api/v1/audit/events?limit=100'); const data = await response.json().catch(() => []); if (!response.ok) throw new Error(data.message || 'Audit events could not be loaded'); setEvents(data) } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setLoading(false) } }
   useEffect(() => { refresh() }, [])
   return <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2, md: 3 } }}><PageHeading eyebrow="DURABLE SAFETY TRAIL" title="Recent events" description="Order attempts, safeguards, kill-switch changes, and reconciliation events are stored in PostgreSQL." action={<Button variant="outlined" onClick={refresh} disabled={loading}>↻ Refresh</Button>} />{loading && <LinearProgress sx={{ mb: 2 }} />}{events.length === 0 ? <Alert severity="info">No audit events recorded.</Alert> : <TableContainer sx={{ maxHeight: 560, borderRadius: 2, ...insetSx }}><Table stickyHeader size="small"><TableHead><TableRow>{['Time', 'Event', 'Aggregate', 'Details'].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{events.map((event, index) => <TableRow hover key={`${event.occurredAt}-${index}`}><TableCell sx={{ whiteSpace: 'nowrap' }}>{event.occurredAt ? new Date(event.occurredAt).toLocaleString() : '—'}</TableCell><TableCell><Typography fontWeight={800}>{event.eventType}</Typography></TableCell><TableCell>{event.aggregateType}<Typography variant="caption" display="block" color="text.secondary">{event.aggregateId}</Typography></TableCell><TableCell sx={{ minWidth: 260, whiteSpace: 'normal', wordBreak: 'break-word' }}>{event.details}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</CardContent></Card>
 }
@@ -335,8 +358,8 @@ function AuditLogMUI({ notify }) {
 function ExecutionConsoleMUI({ profile, status, form, change, orders, busy, setBusy, refresh, notify }) {
   const [automationStatus, setAutomationStatus] = useState(null)
   const liveGateReady = profile?.mode === 'LIVE' && status?.executionState === 'CONFIGURED_BUT_GATED' && status?.accessTokenConfigured
-  useEffect(() => { fetch(`${apiBase}/api/v1/automation/status`).then(response => response.ok ? response.json() : null).then(setAutomationStatus).catch(() => setAutomationStatus(null)) }, [])
-  async function api(path, options) { const response = await fetch(`${apiBase}${path}`, options); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || 'Execution request failed'); return data }
+  useEffect(() => { apiFetch('/api/v1/automation/status').then(response => response.ok ? response.json() : null).then(setAutomationStatus).catch(() => setAutomationStatus(null)) }, [])
+  async function api(path, options) { const response = await apiFetch(path, options); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || 'Execution request failed'); return data }
   async function submit(event) { event.preventDefault(); if (!liveGateReady) { notify({ tone: 'error', text: 'Execution is locked. Enable the explicit routing flag, use LIVE profile mode, and complete Kite login first.' }); return } if (!window.confirm(`Submit ${form.side} ${form.quantity} ${form.symbol}? This can place a real broker order.`)) return; setBusy(true); try { const key = window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random()}`; await api('/api/v1/execution/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify({ ...form, symbol: form.symbol.trim().toUpperCase(), quantity: Number(form.quantity), price: form.price ? Number(form.price) : null, triggerPrice: form.triggerPrice ? Number(form.triggerPrice) : null, stopPrice: form.stopPrice ? Number(form.stopPrice) : null }) }); notify({ tone: 'success', text: 'Order submission accepted by the execution gateway.' }); await refresh() } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) } }
   async function reconcile() { setBusy(true); try { await api('/api/v1/execution/orders/reconcile', { method: 'POST' }); await refresh(); notify({ tone: 'success', text: 'Tracked order statuses reconciled.' }) } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) } }
   async function cancel(orderId) { if (!window.confirm(`Cancel broker order ${orderId}?`)) return; setBusy(true); try { await api(`/api/v1/execution/orders/${encodeURIComponent(orderId)}`, { method: 'DELETE' }); await refresh(); notify({ tone: 'success', text: 'Cancellation request submitted.' }) } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) } }
@@ -356,7 +379,7 @@ function ExecutionConsoleMUI({ profile, status, form, change, orders, busy, setB
 
 function JournalMUI({ notify }) {
   const [trades, setTrades] = useState([]); const [summary, setSummary] = useState(null); const [report, setReport] = useState(null); const [loading, setLoading] = useState(true); const [creating, setCreating] = useState(false); const [action, setAction] = useState(null); const [replay, setReplay] = useState(null); const [actionPrice, setActionPrice] = useState(''); const [actionQuantity, setActionQuantity] = useState(''); const [brokerage, setBrokerage] = useState('0'); const [exitReason, setExitReason] = useState('MANUAL'); const [form, setForm] = useState({ symbol: 'SBIN', side: 'BUY', intendedEntryPrice: '', stopPrice: '', intendedQuantity: '', strategy: '', notes: '' })
-  async function api(path, options) { const response = await fetch(`${apiBase}${path}`, options); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || 'Request failed'); return data }
+  async function api(path, options) { const response = await apiFetch(path, options); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || 'Request failed'); return data }
   async function reload() { setLoading(true); try { const [nextTrades, nextSummary, nextReport] = await Promise.all([api('/api/v1/paper-trades'), api('/api/v1/paper-trades/summary'), api('/api/v1/paper-trades/report')]); setTrades(nextTrades); setSummary(nextSummary); setReport(nextReport) } catch (error) { notify({ tone: 'error', text: `Unable to load journal: ${error.message}` }) } finally { setLoading(false) } }
   useEffect(() => { reload() }, [])
   async function createIntent(event) { event.preventDefault(); setCreating(true); try { await api('/api/v1/paper-trades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, symbol: form.symbol.trim().toUpperCase(), intendedEntryPrice: Number(form.intendedEntryPrice), stopPrice: Number(form.stopPrice), intendedQuantity: Number(form.intendedQuantity) }) }); setForm(current => ({ ...current, intendedEntryPrice: '', stopPrice: '', intendedQuantity: '', notes: '' })); notify({ tone: 'success', text: 'Intent recorded. It is not treated as a filled trade.' }); await reload() } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setCreating(false) } }
@@ -376,11 +399,11 @@ function JournalMUI({ notify }) {
 function Metric({ label, value, detail, accent = '' }) { return <article className={`metric-card ${accent}`}><p>{label}</p><strong>{value}</strong><span>{detail}</span></article> }
 function Checklist({ text }) { return <div className="check-item"><span>✓</span>{text}</div> }
 function Field({ label, children }) { return <label className="field"><span>{label}</span>{children}</label> }
-function LoginPage({ onSuccess }) {
+function LoginPage({ onSuccess, message = '' }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(message)
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError('')
     try {
@@ -390,7 +413,36 @@ function LoginPage({ onSuccess }) {
       onSuccess()
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
-  return <ThemeProvider theme={marketTheme}><Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 3, bgcolor: '#edf2f8' }}><Card sx={{ ...pageCardSx, width: 'min(430px,100%)' }}><CardContent sx={{ p: { xs: 3, sm: 4 } }}><Stack gap={2}><Stack direction="row" gap={1.2} alignItems="center"><Box sx={{ width: 36, height: 36, display: 'grid', placeItems: 'center', borderRadius: 2, color: '#fff', fontWeight: 800, bgcolor: 'primary.main', boxShadow: '4px 4px 9px #c5cfdd, -4px -4px 9px #fff' }}>S</Box><Typography variant="h6">Signal<span style={{ color: '#00a9ac' }}>Desk</span></Typography></Stack><Typography variant="overline" color="text.secondary" letterSpacing=".14em">SECURE ACCESS</Typography><Typography variant="h4">Welcome back</Typography><Typography variant="body2" color="text.secondary">Sign in to continue to your private market research workspace.</Typography>{error && <Alert severity="error">{error}</Alert>}<Box component="form" onSubmit={submit} sx={{ display: 'grid', gap: 2 }}><TextField label="Username" autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required /><TextField label="Password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /><Button type="submit" variant="contained" disabled={busy} sx={{ minHeight: 48 }}>{busy ? 'Signing in…' : 'Sign in →'}</Button></Box><Typography variant="caption" textAlign="center" color="text.secondary">Private session protected · broker execution remains gated</Typography></Stack></CardContent></Card></Box></ThemeProvider>
+  return <ThemeProvider theme={marketTheme}>
+    <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: { xs: 2, sm: 3 }, bgcolor: '#edf2f8' }}>
+      <Card sx={{ ...pageCardSx, width: 'min(500px, 100%)' }}>
+        <CardContent sx={{ p: { xs: 3, sm: 4.5 } }}>
+          <Stack gap={{ xs: 2.5, sm: 3 }}>
+            <Stack direction="row" gap={1.5} alignItems="center">
+              <Box sx={{ width: 46, height: 46, display: 'grid', placeItems: 'center', borderRadius: '10px', color: '#fff', fontSize: 20, fontWeight: 800, bgcolor: 'primary.main', boxShadow: '4px 4px 9px #c5cfdd, -4px -4px 9px #fff' }}>S</Box>
+              <Box>
+                <Typography variant="h6" lineHeight={1.1}>Signal<span style={{ color: '#00a9ac' }}>Desk</span></Typography>
+                <Typography variant="caption" color="text.secondary" letterSpacing=".12em">PRIVATE MARKET WORKSPACE</Typography>
+              </Box>
+            </Stack>
+            <Box>
+              <Typography variant="overline" color="text.secondary" letterSpacing=".16em">SECURE ACCESS</Typography>
+              <Typography variant="h3" sx={{ mt: .75, fontSize: { xs: '2rem', sm: '2.45rem' }, lineHeight: 1.1 }}>Welcome back</Typography>
+              <Typography variant="body1" color="text.secondary" sx={{ mt: 1.25, maxWidth: 420, lineHeight: 1.65 }}>Sign in to continue to your private market research workspace.</Typography>
+            </Box>
+            {error && <Alert severity="error" variant="outlined">{error}</Alert>}
+            <Box component="form" onSubmit={submit} sx={{ display: 'grid', gap: 2.25 }}>
+              <TextField fullWidth label="Username" autoFocus autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required />
+              <TextField fullWidth label="Password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required />
+              <Button type="submit" variant="contained" disabled={busy} sx={{ minHeight: 50, mt: .25, fontSize: '1rem' }}>{busy ? 'Signing in…' : 'Sign in →'}</Button>
+            </Box>
+            <Divider />
+            <Typography variant="body2" textAlign="center" color="text.secondary" sx={{ lineHeight: 1.5 }}>Private session protected. Broker execution remains separately gated.</Typography>
+          </Stack>
+        </CardContent>
+      </Card>
+    </Box>
+  </ThemeProvider>
 }
 function MenuGroup({ label, icon, open, active, onToggle, children }) {
   return <div className={`menu-group ${active ? 'group-active' : ''}`}>
@@ -410,7 +462,7 @@ function AuditLog({ notify }) {
   async function refresh() {
     setLoading(true)
     try {
-      const response = await fetch(`${apiBase}/api/v1/audit/events?limit=100`)
+      const response = await apiFetch('/api/v1/audit/events?limit=100')
       const data = await response.json().catch(() => [])
       if (!response.ok) throw new Error(data.message || 'Audit events could not be loaded')
       setEvents(data)
@@ -426,11 +478,11 @@ function ExecutionConsole({ profile, status, form, change, orders, busy, setBusy
   const [automationStatus, setAutomationStatus] = useState(null)
   const liveGateReady = profile?.mode === 'LIVE' && status?.executionState === 'CONFIGURED_BUT_GATED' && status?.accessTokenConfigured
   useEffect(() => {
-    fetch(`${apiBase}/api/v1/automation/status`).then(response => response.ok ? response.json() : null)
+    apiFetch('/api/v1/automation/status').then(response => response.ok ? response.json() : null)
       .then(setAutomationStatus).catch(() => setAutomationStatus(null))
   }, [])
   async function api(path, options) {
-    const response = await fetch(`${apiBase}${path}`, options)
+    const response = await apiFetch(path, options)
     const data = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(data.message || 'Execution request failed')
     return data
@@ -503,7 +555,7 @@ function KiteIntegration({ status, refresh, notify }) {
   async function connectKite() {
     setLoadingUrl(true)
     try {
-      const response = await fetch(`${apiBase}/api/v1/integrations/zerodha/login-url`)
+      const response = await apiFetch('/api/v1/integrations/zerodha/login-url')
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || 'Kite API key has not been configured')
       window.location.assign(data.loginUrl)
@@ -516,7 +568,7 @@ function KiteIntegration({ status, refresh, notify }) {
 
   useEffect(() => {
     if (!marketDataReady) { setHasSyncedSymbols(false); return }
-    fetch(`${apiBase}/api/v1/market-data/instruments?query=`)
+    apiFetch('/api/v1/market-data/instruments?query=')
       .then(response => response.ok ? response.json() : [])
       .then(items => setHasSyncedSymbols(Array.isArray(items) && items.length > 0))
       .catch(() => setHasSyncedSymbols(false))
@@ -525,7 +577,7 @@ function KiteIntegration({ status, refresh, notify }) {
   async function syncInstruments() {
     setSyncing(true)
     try {
-      const response = await fetch(`${apiBase}/api/v1/market-data/instruments/sync`, { method: 'POST' })
+      const response = await apiFetch('/api/v1/market-data/instruments/sync', { method: 'POST' })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || 'Instrument sync failed')
       setSyncResult(data)
@@ -541,7 +593,7 @@ function KiteIntegration({ status, refresh, notify }) {
     if (hasSyncedSymbols === null) { setSymbolMessage('Checking the local symbol catalogue…'); return }
     setSymbolMessage('')
     try {
-      const response = await fetch(`${apiBase}/api/v1/market-data/instruments?query=${encodeURIComponent(symbolQuery.trim())}&sector=${encodeURIComponent(sectorFilter)}`)
+      const response = await apiFetch(`/api/v1/market-data/instruments?query=${encodeURIComponent(symbolQuery.trim())}&sector=${encodeURIComponent(sectorFilter)}`)
       const data = await response.json().catch(() => [])
       if (!response.ok) throw new Error(data.message || 'Symbol search failed')
       setInstruments(data)
@@ -554,16 +606,16 @@ function KiteIntegration({ status, refresh, notify }) {
     setVerifying(true)
     setVerification(null)
     try {
-      const configResponse = await fetch(`${apiBase}/api/v1/scanner/config`)
+      const configResponse = await apiFetch('/api/v1/scanner/config')
       const scannerConfig = await configResponse.json().catch(() => ({}))
       if (!configResponse.ok) throw new Error(scannerConfig.message || 'Scanner configuration could not be loaded')
       const from = `${tradeDate}T09:15:00+05:30`
       const to = `${tradeDate}T15:30:00+05:30`
       const interval = scannerConfig.candleInterval || 'FIVE_MINUTE'
-      const candleResponse = await fetch(`${apiBase}/api/v1/market-data/historical-candles?instrumentToken=${selected.instrumentToken}&interval=${interval}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      const candleResponse = await apiFetch(`/api/v1/market-data/historical-candles?instrumentToken=${selected.instrumentToken}&interval=${interval}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
       const candles = await candleResponse.json().catch(() => [])
       if (!candleResponse.ok) throw new Error(candles.message || 'Historical candle request failed')
-      const signalResponse = await fetch(`${apiBase}/api/v1/signals/evaluate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: selected.tradingsymbol, candles }) })
+      const signalResponse = await apiFetch('/api/v1/signals/evaluate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: selected.tradingsymbol, candles }) })
       const signal = await signalResponse.json().catch(() => ({}))
       if (!signalResponse.ok) throw new Error(signal.message || 'Signal evaluation failed')
       setVerification({ count: candles.length, signal })
@@ -573,7 +625,7 @@ function KiteIntegration({ status, refresh, notify }) {
   async function addSelectedToMonitor() {
     if (!selected) return
     try {
-      const response = await fetch(`${apiBase}/api/v1/live-market/watchlist`, {
+      const response = await apiFetch('/api/v1/live-market/watchlist', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ instrumentToken: selected.instrumentToken })
       })
@@ -638,13 +690,13 @@ function ScannerSettings({ marketDataReady, notify }) {
   const [config, setConfig] = useState(null)
   const [saving, setSaving] = useState(false)
   async function load() {
-    try { const response = await fetch(`${apiBase}/api/v1/scanner/config`); const data = await response.json(); if (!response.ok) throw new Error(data.message || 'Scanner configuration could not be loaded'); setConfig(data) } catch (error) { notify({ tone: 'error', text: error.message }) }
+    try { const response = await apiFetch('/api/v1/scanner/config'); const data = await response.json(); if (!response.ok) throw new Error(data.message || 'Scanner configuration could not be loaded'); setConfig(data) } catch (error) { notify({ tone: 'error', text: error.message }) }
   }
   useEffect(() => { load() }, [])
   async function save(event) {
     event.preventDefault(); setSaving(true)
     try {
-      const response = await fetch(`${apiBase}/api/v1/scanner/config`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: config.enabled, candleInterval: config.candleInterval, openingRangeCandles: Number(config.openingRangeCandles), volumeLookback: Number(config.volumeLookback), volumeMultiplier: Number(config.volumeMultiplier), minimumCandles: Number(config.minimumCandles) }) })
+      const response = await apiFetch('/api/v1/scanner/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: config.enabled, candleInterval: config.candleInterval, openingRangeCandles: Number(config.openingRangeCandles), volumeLookback: Number(config.volumeLookback), volumeMultiplier: Number(config.volumeMultiplier), minimumCandles: Number(config.minimumCandles) }) })
       const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || 'Scanner configuration update failed'); setConfig(data); notify({ tone: 'success', text: 'Scanner strategy configuration updated for this application run.' })
     } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setSaving(false) }
   }
@@ -677,7 +729,7 @@ function LiveStream({ selected, marketDataReady, notify, onNavigate }) {
   const [dependencyMessage, setDependencyMessage] = useState('')
 
   async function api(path, options) {
-    const response = await fetch(`${apiBase}${path}`, options)
+    const response = await apiFetch(path, options)
     const data = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(data.message || 'Live market-data request failed')
     return data
@@ -781,7 +833,7 @@ function LiveStreamMUI({ selected, marketDataReady, notify, onNavigate }) {
   const [message, setMessage] = useState('')
 
   async function api(path, options) {
-    const response = await fetch(`${apiBase}${path}`, options)
+    const response = await apiFetch(path, options)
     const data = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(data.message || data.error || 'Live market-data request failed')
     return data
@@ -875,7 +927,7 @@ function Journal({ notify }) {
   const [form, setForm] = useState({ symbol: 'SBIN', side: 'BUY', intendedEntryPrice: '', stopPrice: '', intendedQuantity: '', strategy: '', notes: '' })
 
   async function api(path, options) {
-    const response = await fetch(`${apiBase}${path}`, options)
+    const response = await apiFetch(path, options)
     const data = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(data.message || 'Request failed')
     return data
