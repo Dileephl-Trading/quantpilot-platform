@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="quantpilot" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#13b8c1"/>
+      <stop offset="1" stop-color="#078f9f"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#quantpilot)"/>
+  <path d="m6 37 10-16 8 9 11-18 8 12 10-15 4 3-13 20-8-12-11 18-8-9-8 12Z" fill="#fff" opacity=".24"/>
+  <text x="32" y="45" fill="#fff" font-family="Arial,sans-serif" font-size="30" font-weight="800" text-anchor="middle">Q</text>
+</svg>

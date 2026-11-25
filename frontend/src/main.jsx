@@ -74,8 +74,8 @@ function QuantPilotMark({ size = 'small' }) {
   </Box>
 }
 
-function QuantPilotWordmark({ login = false }) {
-  return <Box component="span" sx={{ display: 'inline-flex', flexDirection: 'column', minWidth: 0 }}>
+function QuantPilotWordmark({ login = false, withMark = false }) {
+  return <Box component="span" sx={{ display: 'inline-flex', flexDirection: 'column', minWidth: 0, ml: withMark ? { xs: 1, sm: 1.5 } : 0 }}>
     <Typography component="span" sx={{ color: '#223451', fontSize: login ? '1.3rem' : '1.15rem', fontWeight: 850, letterSpacing: '-.045em', lineHeight: 1.05, whiteSpace: 'nowrap' }}>QuantPilot<span style={{ color: '#078f9f' }}>Platform</span></Typography>
     {login && <Typography component="span" sx={{ mt: .45, color: 'text.secondary', fontSize: '.62rem', fontWeight: 700, letterSpacing: '.13em', lineHeight: 1.1 }}>PRIVATE MARKET WORKSPACE</Typography>}
   </Box>
@@ -249,7 +249,7 @@ function App() {
   return <ThemeProvider theme={marketTheme}><Box className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#overview" onClick={() => setActive('overview')}>
-        <QuantPilotMark /><QuantPilotWordmark />
+        <QuantPilotMark /><QuantPilotWordmark withMark />
       </a>
       <p className="sidebar-label">WORKSPACE</p>
       <nav className="workspace-nav">
@@ -436,9 +436,9 @@ function LoginPage({ onSuccess, message = '' }) {
       <Card sx={{ ...pageCardSx, width: 'min(500px, 100%)' }}>
         <CardContent sx={{ p: { xs: 3, sm: 4.5 } }}>
           <Stack gap={{ xs: 2.5, sm: 3 }}>
-            <Stack direction="row" gap={1.5} alignItems="center">
+            <Stack direction="row" gap={{ xs: 1.75, sm: 2 }} alignItems="center">
               <QuantPilotMark size="large" />
-              <QuantPilotWordmark login />
+              <QuantPilotWordmark login withMark />
             </Stack>
             <Box>
               <Typography variant="overline" color="text.secondary" letterSpacing=".16em">SECURE ACCESS</Typography>
@@ -446,13 +446,13 @@ function LoginPage({ onSuccess, message = '' }) {
               <Typography variant="body1" color="text.secondary" sx={{ mt: 1.25, maxWidth: 420, lineHeight: 1.65 }}>Sign in to continue to your private market research workspace.</Typography>
             </Box>
             {error && <Alert severity="error" variant="outlined">{error}</Alert>}
-            <Box component="form" onSubmit={submit} sx={{ display: 'grid', gap: 2.25 }}>
+            <Box component="form" onSubmit={submit} sx={{ display: 'grid', gap: 2.5, mt: .5 }}>
               <TextField fullWidth label="Username" autoFocus autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required />
               <TextField fullWidth label="Password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required />
-              <Button type="submit" variant="contained" disabled={busy} sx={{ minHeight: 50, mt: .25, fontSize: '1rem' }}>{busy ? 'Signing in…' : 'Sign in →'}</Button>
+              <Button type="submit" variant="contained" disabled={busy} sx={{ minHeight: 50, mt: .5, fontSize: '1rem' }}>{busy ? 'Signing in…' : 'Sign in →'}</Button>
             </Box>
-            <Divider />
-            <Typography variant="body2" textAlign="center" color="text.secondary" sx={{ lineHeight: 1.5 }}>Private session protected. Broker execution remains separately gated.</Typography>
+            <Divider sx={{ mt: .5 }} />
+            <Typography variant="body2" textAlign="center" color="text.secondary" sx={{ pt: .25, lineHeight: 1.65 }}>Private session protected. Broker execution remains separately gated.</Typography>
           </Stack>
         </CardContent>
       </Card>
