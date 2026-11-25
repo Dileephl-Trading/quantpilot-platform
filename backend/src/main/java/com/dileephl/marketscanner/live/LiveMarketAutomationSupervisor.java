@@ -5,6 +5,8 @@ import com.dileephl.marketscanner.config.MarketSessionService;
 import com.dileephl.marketscanner.integration.marketdata.LiveFeedStatus;
 import com.dileephl.marketscanner.integration.zerodha.KiteAuthService;
 import com.dileephl.marketscanner.integration.zerodha.KiteConnectProperties;
+import com.dileephl.marketscanner.marketdata.InstrumentSyncResult;
+import com.dileephl.marketscanner.marketdata.MarketInstrumentService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -24,19 +26,22 @@ public class LiveMarketAutomationSupervisor {
     private final KiteAuthService auth;
     private final MarketSessionService sessions;
     private final AuditTrailService audit;
+    private final MarketInstrumentService instruments;
     private String lastFailure;
     private LocalDate lastStartedDate;
     private LocalDate defaultsPreparedDate;
+    private LocalDate instrumentsSyncedDate;
     private LocalDate watchlistClearedDate;
 
     public LiveMarketAutomationSupervisor(LiveMarketService liveMarket, KiteConnectProperties kite,
                                           KiteAuthService auth, MarketSessionService sessions,
-                                          AuditTrailService audit) {
+                                          AuditTrailService audit, MarketInstrumentService instruments) {
         this.liveMarket = liveMarket;
         this.kite = kite;
         this.auth = auth;
         this.sessions = sessions;
         this.audit = audit;
+        this.instruments = instruments;
     }
 
     @Scheduled(fixedDelayString = "${scanner.zerodha.automation-supervisor-ms:15000}",
@@ -68,6 +73,22 @@ public class LiveMarketAutomationSupervisor {
                         "Daily Kite session is missing, expired, or invalid");
             }
             return;
+        }
+        if (!today().equals(instrumentsSyncedDate)) {
+            try {
+                InstrumentSyncResult synced = instruments.syncNseCashEquities();
+                instrumentsSyncedDate = today();
+                lastFailure = null;
+                audit.record("LIVE_NSE_SYMBOLS_AUTO_SYNCED", "LIVE_MONITOR", "GLOBAL",
+                        "Synced " + synced.savedInstruments() + " NSE cash instruments for the current Kite session");
+            } catch (RuntimeException error) {
+                String reason = error.getMessage() == null ? "unknown NSE instrument sync failure" : error.getMessage();
+                if (!reason.equals(lastFailure)) {
+                    lastFailure = reason;
+                    audit.record("LIVE_NSE_SYMBOLS_AUTO_SYNC_BLOCKED", "LIVE_MONITOR", "GLOBAL", reason);
+                }
+                return;
+            }
         }
         if (!today().equals(defaultsPreparedDate)) {
             try {
