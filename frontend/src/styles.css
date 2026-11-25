@@ -214,6 +214,25 @@ body { min-width: 320px; }
   .live-search button { width:100%; }
 }
 
+/* Keep the application shell fixed to the viewport. Desktop pages scroll inside
+   the content pane, while tables, watchlists and history keep their own
+   bounded scrolling surfaces. This prevents the browser viewport from
+   growing wider or carrying a second page-level scroll context. */
+@media (min-width: 611px) {
+  html, body, #root { height: 100%; overflow: hidden; }
+  .app-shell { height: 100dvh; min-height: 0; overflow: hidden; }
+  .sidebar { height: 100%; min-height: 0; overflow-y: auto; }
+  .main-content { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  .main-content::-webkit-scrollbar { width: 9px; }
+  .main-content::-webkit-scrollbar-track { background: transparent; }
+  .main-content::-webkit-scrollbar-thumb { background: #c5cfdd; border: 3px solid var(--neo-bg); border-radius: 8px; }
+}
+
+.live-card .MuiPaper-root,
+.monitor-history .MuiPaper-root { border-radius: 8px; }
+.live-card .MuiPagination-root,
+.monitor-history .MuiPagination-root { overflow-x: auto; max-width: 100%; }
+
 /* Keep market-data pages contained: the page itself scrolls once, while large
    watchlists, search results, history and candle tables scroll inside their
    own bounded surfaces. */
