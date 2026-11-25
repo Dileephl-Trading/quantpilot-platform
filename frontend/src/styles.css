@@ -260,3 +260,8 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
 .app-shell .MuiMenu-paper { border-radius: 8px; max-height: min(50vh, 360px); }
 .live-card .MuiTableContainer-root,
 .monitor-history .MuiTableContainer-root { border-radius: 6px; }
+
+/* Keep sign-out visible in both the expanded and compact side navigation. */
+.logout-link { margin-top: 12px; color: #a34848 !important; }
+.logout-link:hover { color: #9d2e2e !important; background: rgba(192, 76, 76, .10) !important; border-color: rgba(192, 76, 76, .28) !important; }
+.logout-link:disabled { opacity: .62; cursor: wait; }
