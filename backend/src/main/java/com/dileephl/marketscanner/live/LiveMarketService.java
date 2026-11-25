@@ -154,6 +154,7 @@ public class LiveMarketService {
 
     @Transactional(readOnly = true)
     public List<LiveWatchlistView> watchlist() {
+        if (!marketSessionService.isOpenNow()) return List.of();
         return currentSessionEntries().stream().map(LiveWatchlistView::from).toList();
     }
 
@@ -300,8 +301,8 @@ public class LiveMarketService {
     public PagedResponse<LiveCandleView> currentCandlesPage(int page, int pageSize) {
         int safePage = Math.max(0, page);
         int safePageSize = Math.max(1, Math.min(pageSize, MAX_PAGE_SIZE));
-        return PagedResponse.from(candleRepository.findByGeneratedAtGreaterThanEqualAndEvaluationTypeInOrderByGeneratedAtDesc(
-                sessionStart(), ACTIONABLE_EVALUATIONS, PageRequest.of(safePage, safePageSize)), LiveCandleView::from);
+        return PagedResponse.from(candleRepository.findByGeneratedAtGreaterThanEqualOrderByGeneratedAtDesc(
+                sessionStart(), PageRequest.of(safePage, safePageSize)), LiveCandleView::from);
     }
 
     @Transactional(readOnly = true)
@@ -321,15 +322,13 @@ public class LiveMarketService {
     }
 
     @Transactional(readOnly = true)
-    public MonitorHistoryPage historyPage(int days, int signalPage, int candlePage, int pageSize) {
+    public MonitorHistoryPage historyPage(int days, int page, int pageSize) {
         int safeDays = Math.max(1, Math.min(days, 7));
         int safePageSize = Math.max(1, Math.min(pageSize, MAX_PAGE_SIZE));
         OffsetDateTime cutoff = OffsetDateTime.now(INDIA_OFFSET).minusDays(safeDays);
         return new MonitorHistoryPage(safeDays,
-                PagedResponse.from(signalRepository.findSince(cutoff, "", "",
-                        PageRequest.of(Math.max(0, signalPage), safePageSize)), LiveSignalView::from),
                 PagedResponse.from(candleRepository.findByGeneratedAtGreaterThanEqualAndEvaluationTypeInOrderByGeneratedAtDesc(
-                        cutoff, ACTIONABLE_EVALUATIONS, PageRequest.of(Math.max(0, candlePage), safePageSize)), LiveCandleView::from));
+                        cutoff, ACTIONABLE_EVALUATIONS, PageRequest.of(Math.max(0, page), safePageSize)), LiveCandleView::from));
     }
 
     private OffsetDateTime sessionStart() {
@@ -337,8 +336,7 @@ public class LiveMarketService {
                 .atTime(LocalTime.of(9, 15)).atOffset(INDIA_OFFSET);
     }
 
-    public record MonitorHistoryPage(int days, PagedResponse<LiveSignalView> signals,
-                                     PagedResponse<LiveCandleView> candles) { }
+    public record MonitorHistoryPage(int days, PagedResponse<LiveCandleView> watchSetups) { }
 
     private synchronized void acceptTick(LiveMarketTick tick) {
         if (!marketSessionService.isOpen(tick.timestamp())) return;
