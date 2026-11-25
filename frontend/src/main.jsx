@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, LinearProgress, Paper, Stack, Step, StepLabel, Stepper, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, ThemeProvider, Typography, createTheme } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, LinearProgress, Pagination, Paper, Stack, Step, StepLabel, Stepper, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, ThemeProvider, Typography, createTheme } from '@mui/material'
 import './styles.css'
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || ''
@@ -262,8 +262,9 @@ function App() {
           <MenuItem active={active === 'audit'} onClick={() => setActive('audit')} icon="▥">Audit log</MenuItem>
           <MenuItem active={active === 'journal'} onClick={() => setActive('journal')} icon="▤">Trade journal</MenuItem>
         </MenuGroup>
-        <MenuGroup label="Market data" icon="◌" open={openGroups.market} active={active === 'integration'} onToggle={() => toggleGroup('market')}>
+        <MenuGroup label="Market data" icon="◌" open={openGroups.market} active={active === 'integration' || active === 'monitorHistory'} onToggle={() => toggleGroup('market')}>
           <MenuItem active={active === 'integration'} onClick={() => setActive('integration')} icon="◌">Connection & data</MenuItem>
+          <MenuItem active={active === 'monitorHistory'} onClick={() => setActive('monitorHistory')} icon="◴">Monitor history</MenuItem>
         </MenuGroup>
         <MenuGroup label="Configuration" icon="⚙" open={openGroups.configuration} active={active === 'settings'} onToggle={() => toggleGroup('configuration')}>
           <MenuItem active={active === 'settings'} onClick={() => setActive('settings')} icon="⚙">Trading profile</MenuItem>
@@ -279,7 +280,7 @@ function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">LOCAL RESEARCH WORKSPACE</p>
-          <h1>{active === 'settings' ? 'Trading profile' : active === 'risk' ? 'Risk preview' : active === 'execution' ? 'Order execution' : active === 'audit' ? 'Audit log' : active === 'journal' ? 'Trade journal' : active === 'integration' ? 'Market-data connection' : 'Paper trading overview'}</h1>
+          <h1>{active === 'settings' ? 'Trading profile' : active === 'risk' ? 'Risk preview' : active === 'execution' ? 'Order execution' : active === 'audit' ? 'Audit log' : active === 'journal' ? 'Trade journal' : active === 'integration' ? 'Market-data connection' : active === 'monitorHistory' ? 'Monitor history' : 'Paper trading overview'}</h1>
         </div>
         <div className="topbar-status">
           <div className="connection"><span className={loading ? 'status-dot amber' : 'status-dot'} /> {loading ? 'Connecting to API' : 'Local API connected'}</div>
@@ -302,7 +303,9 @@ function App() {
 
         {active === 'journal' && <JournalMUI notify={setNotice} />}
 
-        {active === 'integration' && <KiteIntegration status={kiteStatus} refresh={loadKiteStatus} notify={setNotice} />}
+        {active === 'integration' && <KiteIntegration status={kiteStatus} refresh={loadKiteStatus} notify={setNotice} onOpenMonitorHistory={() => setActive('monitorHistory')} />}
+
+        {active === 'monitorHistory' && <MonitorHistoryMUI notify={setNotice} />}
 
         {active === 'settings' && draft && <ProfileMUI draft={draft} changeDraft={changeDraft} saveProfile={saveProfile} saving={saving} savedAt={profileSavedAt} />}
       </>}
@@ -366,11 +369,30 @@ function ProfileMUI({ draft, changeDraft, saveProfile, saving, savedAt }) {
 }
 
 function AuditLogMUI({ notify }) {
-  const [events, setEvents] = useState([])
+  const emptyPage = { items: [], page: 0, pageSize: 10, totalElements: 0, totalPages: 0 }
+  const [result, setResult] = useState(emptyPage)
   const [loading, setLoading] = useState(false)
-  async function refresh() { setLoading(true); try { const response = await apiFetch('/api/v1/audit/events?limit=100'); const data = await response.json().catch(() => []); if (!response.ok) throw new Error(data.message || 'Audit events could not be loaded'); setEvents(data) } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setLoading(false) } }
-  useEffect(() => { refresh() }, [])
-  return <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2, md: 3 } }}><PageHeading eyebrow="DURABLE SAFETY TRAIL" title="Recent events" description="Order attempts, safeguards, kill-switch changes, and reconciliation events are stored in PostgreSQL." action={<Button variant="outlined" onClick={refresh} disabled={loading}>↻ Refresh</Button>} />{loading && <LinearProgress sx={{ mb: 2 }} />}{events.length === 0 ? <Alert severity="info">No audit events recorded.</Alert> : <TableContainer sx={{ maxHeight: 560, borderRadius: 2, ...insetSx }}><Table stickyHeader size="small"><TableHead><TableRow>{['Time', 'Event', 'Aggregate', 'Details'].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{events.map((event, index) => <TableRow hover key={`${event.occurredAt}-${index}`}><TableCell sx={{ whiteSpace: 'nowrap' }}>{event.occurredAt ? new Date(event.occurredAt).toLocaleString() : '—'}</TableCell><TableCell><Typography fontWeight={800}>{event.eventType}</Typography></TableCell><TableCell>{event.aggregateType}<Typography variant="caption" display="block" color="text.secondary">{event.aggregateId}</Typography></TableCell><TableCell sx={{ minWidth: 260, whiteSpace: 'normal', wordBreak: 'break-word' }}>{event.details}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</CardContent></Card>
+
+  async function refresh(page = result.page) {
+    setLoading(true)
+    try {
+      const response = await apiFetch(`/api/v1/audit/events/page?page=${page}&pageSize=10`)
+      const data = await response.json().catch(() => emptyPage)
+      if (!response.ok) throw new Error(data.message || 'Audit events could not be loaded')
+      setResult(data)
+    } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setLoading(false) }
+  }
+
+  useEffect(() => { refresh(0) }, [])
+  const pageCount = Math.max(1, result.totalPages || 0)
+  return <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2, md: 3 } }}>
+    <PageHeading eyebrow="DURABLE SAFETY TRAIL" title="Recent events" description="The active audit window covers the last seven days. Older events are moved to an archive table automatically." action={<Button variant="outlined" onClick={() => refresh(result.page)} disabled={loading}>↻ Refresh</Button>} />
+    {loading && <LinearProgress sx={{ mb: 2 }} />}
+    {result.items.length === 0 ? <Alert severity="info">No audit events recorded in the seven-day window.</Alert> : <>
+      <TableContainer sx={{ maxHeight: 520, borderRadius: 2, ...insetSx }}><Table stickyHeader size="small"><TableHead><TableRow>{['Time', 'Event', 'Aggregate', 'Details'].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{result.items.map((event, index) => <TableRow hover key={`${event.occurredAt}-${event.eventType}-${index}`}><TableCell sx={{ whiteSpace: 'nowrap' }}>{event.occurredAt ? new Date(event.occurredAt).toLocaleString() : '—'}</TableCell><TableCell><Typography fontWeight={800}>{event.eventType}</Typography></TableCell><TableCell>{event.aggregateType}<Typography variant="caption" display="block" color="text.secondary">{event.aggregateId}</Typography></TableCell><TableCell sx={{ minWidth: 260, whiteSpace: 'normal', wordBreak: 'break-word' }}>{event.details}</TableCell></TableRow>)}</TableBody></Table></TableContainer>
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={1.5} mt={2}><Typography variant="caption" color="text.secondary">Showing {result.items.length} of {result.totalElements} events · page {result.page + 1} of {pageCount}</Typography><Pagination color="primary" size="small" count={pageCount} page={result.page + 1} onChange={(_, value) => refresh(value - 1)} disabled={loading || result.totalPages <= 1} /></Stack>
+    </>}
+  </CardContent></Card>
 }
 
 function ExecutionConsoleMUI({ profile, status, form, change, orders, busy, setBusy, refresh, notify }) {
@@ -553,7 +575,7 @@ function ExecutionConsole({ profile, status, form, change, orders, busy, setBusy
   </section>
 }
 
-function KiteIntegration({ status, refresh, notify }) {
+function KiteIntegration({ status, refresh, notify, onOpenMonitorHistory }) {
   const [loadingUrl, setLoadingUrl] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState(null)
@@ -692,7 +714,7 @@ function KiteIntegration({ status, refresh, notify }) {
         {selected && <Paper sx={{ mt: 3, p: 2, display: 'flex', alignItems: { xs: 'stretch', md: 'flex-end' }, gap: 1.5, flexWrap: 'wrap', bgcolor: '#f2f8fb' }}><Box sx={{ minWidth: 0, mr: 'auto', flex: '1 1 220px' }}><Typography variant="overline" color="text.secondary">SELECTED SYMBOL</Typography><Typography fontWeight={800} sx={{ overflowWrap: 'anywhere' }}>{selected.tradingsymbol}</Typography><Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{selected.sector || 'OTHER'} · ready for monitoring</Typography></Box><Button variant="outlined" onClick={addSelectedToMonitor}>Add to Live monitor</Button><TextField sx={{ flex: '1 1 170px' }} type="date" label="Trading date" InputLabelProps={{ shrink: true }} value={tradeDate} onChange={event => setTradeDate(event.target.value)} /><Button variant="contained" onClick={verifyHistorical} disabled={verifying || !marketDataReady}>{verifying ? 'Fetching…' : 'Fetch and evaluate'}</Button></Paper>}
         {verification && <Alert severity="success" sx={{ mt: 2 }}>Completed candles: <b>{verification.count}</b> · Result: <b>{verification.signal.type}</b> · Reference: <b>{money(verification.signal.referencePrice)}</b><br />{verification.signal.reasons?.join(' · ')}</Alert>}
       </CardContent></Card>}
-      {marketTab === 'live' && <LiveStreamMUI selected={selected} marketDataReady={marketDataReady} notify={notify} onNavigate={setMarketTab} />}
+      {marketTab === 'live' && <LiveStreamMUI selected={selected} marketDataReady={marketDataReady} notify={notify} onNavigate={setMarketTab} onOpenMonitorHistory={onOpenMonitorHistory} />}
       {marketTab === 'rules' && <ScannerSettings marketDataReady={marketDataReady} notify={notify} />}
       {marketTab === 'connection' && <Card><CardContent><Typography variant="overline" color="text.secondary" letterSpacing=".14em">IMPLEMENTED CONTRACTS</Typography><Typography variant="h6" mb={2}>Ready for credential-backed verification</Typography><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3,1fr)' }, gap: 1.5 }}>{[['GET /instruments', 'Downloads the published instrument CSV.'], ['Historical candles', 'Retrieves provider-neutral completed candles.'], ['Kite OAuth session flow', 'Creates the daily encrypted session token.']].map(([title, detail]) => <Paper key={title} sx={{ p: 2, bgcolor: 'background.default' }}><Typography fontWeight={800}>{title}</Typography><Typography variant="body2" color="text.secondary" mt={.5}>{detail}</Typography></Paper>)}</Box></CardContent></Card>}
     </Box>
@@ -833,12 +855,12 @@ function LiveStream({ selected, marketDataReady, notify, onNavigate }) {
   </section>
 }
 
-function LiveStreamMUI({ selected, marketDataReady, notify, onNavigate }) {
+function LiveStreamMUI({ selected, marketDataReady, notify, onNavigate, onOpenMonitorHistory }) {
+  const emptyPage = { items: [], page: 0, pageSize: 10, totalElements: 0, totalPages: 0 }
   const [status, setStatus] = useState(null)
   const [watchlist, setWatchlist] = useState([])
-  const [signals, setSignals] = useState([])
-  const [candles, setCandles] = useState([])
-  const [history, setHistory] = useState({ signals: [], candles: [] })
+  const [signalsPage, setSignalsPage] = useState(emptyPage)
+  const [candlesPage, setCandlesPage] = useState(emptyPage)
   const [groups] = useState(['banking', 'bank-nifty', 'it', 'energy', 'auto', 'pharma', 'fmcg'])
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -854,14 +876,14 @@ function LiveStreamMUI({ selected, marketDataReady, notify, onNavigate }) {
     return data
   }
 
-  async function refresh() {
+  async function refresh(signalPage = signalsPage.page, candlePage = candlesPage.page) {
     try {
-      const [nextStatus, nextWatchlist, nextSignals, nextCandles, nextHistory] = await Promise.all([
+      const [nextStatus, nextWatchlist, nextSignals, nextCandles] = await Promise.all([
         api('/api/v1/live-market/status'), api('/api/v1/live-market/watchlist'),
-        api('/api/v1/live-market/signals'), api('/api/v1/live-market/candles'),
-        api('/api/v1/live-market/history?days=7')
+        api(`/api/v1/live-market/signals/page?page=${signalPage}&pageSize=10`),
+        api(`/api/v1/live-market/candles/page?page=${candlePage}&pageSize=10`)
       ])
-      setStatus(nextStatus); setWatchlist(nextWatchlist); setSignals(nextSignals); setCandles(nextCandles); setHistory(nextHistory)
+      setStatus(nextStatus); setWatchlist(nextWatchlist); setSignalsPage(nextSignals); setCandlesPage(nextCandles)
     } catch (error) { notify({ tone: 'error', text: error.message }) }
   }
 
@@ -914,17 +936,58 @@ function LiveStreamMUI({ selected, marketDataReady, notify, onNavigate }) {
   const connected = status?.state === 'CONNECTED'
   return <ThemeProvider theme={marketTheme}>
     <Card className="live-card" sx={pageCardSx}><CardContent sx={{ minWidth: 0, p: { xs: 2.5, md: 3.5 } }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'flex-start' }} gap={2} mb={2} sx={{ minWidth: 0 }}><Box sx={{ minWidth: 0 }}><Typography variant="overline" color="text.secondary" letterSpacing=".14em">LIVE WATCHLIST · READ ONLY</Typography><Typography variant="h5" sx={{ overflowWrap: 'anywhere' }}>Completed-candle signal monitor</Typography><Typography variant="body2" color="text.secondary" sx={{ maxWidth: '68ch', lineHeight: 1.6 }}>Signals are generated only after a five-minute candle closes. They are alerts, never orders.</Typography></Box><Chip label={status?.state || 'STOPPED'} color={connected ? 'success' : 'default'} /> </Stack>
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'flex-start' }} gap={2} mb={2} sx={{ minWidth: 0 }}><Box sx={{ minWidth: 0 }}><Typography variant="overline" color="text.secondary" letterSpacing=".14em">LIVE WATCHLIST · READ ONLY</Typography><Typography variant="h5" sx={{ overflowWrap: 'anywhere' }}>Completed-candle signal monitor</Typography><Typography variant="body2" color="text.secondary" sx={{ maxWidth: '68ch', lineHeight: 1.6 }}>Only this NSE session is shown here. Signals are generated after a five-minute candle closes; they are alerts, never orders.</Typography></Box><Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><Button size="small" variant="outlined" onClick={onOpenMonitorHistory}>7-day history</Button><Chip label={status?.state || 'STOPPED'} color={connected ? 'success' : 'default'} /></Stack> </Stack>
       <Paper sx={{ minWidth: 0, p: 2, mb: 2.5, bgcolor: '#f4f7fb', overflowX: 'auto' }}><Typography variant="subtitle2" fontWeight={800} mb={1.5}>Live-monitor setup</Typography><Stepper activeStep={!marketDataReady ? 0 : hasSyncedSymbols ? 2 : 1} alternativeLabel sx={{ minWidth: { xs: 520, sm: 0 }, '& .MuiStepLabel-label': { fontSize: { xs: 10, sm: 12 }, whiteSpace: 'normal' } }}><Step><StepLabel>Kite connected</StepLabel></Step><Step><StepLabel>NSE symbols synced</StepLabel></Step><Step><StepLabel>Search and add</StepLabel></Step><Step><StepLabel>Start monitor</StepLabel></Step></Stepper>{!marketDataReady && <Alert severity="warning" action={<Button size="small" onClick={() => onNavigate?.('connection')}>Go to Connection</Button>} sx={{ mt: 2 }}>Connect Kite first. Live monitoring requires an active daily session.</Alert>}{marketDataReady && hasSyncedSymbols === false && <Alert severity="info" action={<Button size="small" onClick={() => onNavigate?.('symbols')}>Sync symbols</Button>} sx={{ mt: 2 }}>Sync NSE symbols before searching and adding a stock.</Alert>}{message && <Alert severity="warning" sx={{ mt: 2 }}>{message}</Alert>}</Paper>
       <Box component="form" onSubmit={search} sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap' }}><TextField fullWidth sx={{ flex: '1 1 340px' }} label="Search synced NSE symbol" placeholder="SBIN, HDFCBANK, INFY" value={query} onChange={event => setQuery(event.target.value.toUpperCase())} /><Button type="submit" variant="contained" disabled={!query.trim() || searching}>{searching ? 'Searching…' : 'Search and add'}</Button></Box>
       {results.length > 0 && <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', sm: 'repeat(2,minmax(0,1fr))' }, gap: 1.25, mb: 2, maxHeight: 260, overflowY: 'auto' }}>{results.map(item => <Paper key={item.instrumentToken} sx={{ minWidth: 0, p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}><Box sx={{ minWidth: 0 }}><Typography fontWeight={800} sx={{ overflowWrap: 'anywhere' }}>{item.tradingsymbol}</Typography><Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{item.sector || 'OTHER'} · {item.name || item.segment}</Typography></Box><Button size="small" variant="contained" onClick={() => addSymbol(item)} disabled={busy}>Add</Button></Paper>)}</Box>}
       <Stack direction="row" gap={1} flexWrap="wrap" mb={2.5}><Button variant="outlined" onClick={refresh}>Refresh</Button><Button variant="outlined" onClick={addSelected} disabled={!marketDataReady || !selected || busy}>{selected ? `Add ${selected.tradingsymbol}` : 'Select a symbol above'}</Button>{groups.map(group => <Button key={group} variant="outlined" size="small" onClick={() => addGroup(group)} disabled={!marketDataReady || busy}>{group === 'bank-nifty' ? 'Bank Nifty' : group.toUpperCase()}</Button>)}{connected ? <Button color="error" variant="contained" onClick={() => toggle('/api/v1/live-market/stop')} disabled={busy}>Stop monitor</Button> : <Button variant="contained" onClick={() => toggle('/api/v1/live-market/start')} disabled={!marketDataReady || watchlist.length === 0 || busy}>{busy ? 'Working…' : 'Start monitor'}</Button>}</Stack>
-      <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'repeat(2,minmax(0,1fr))' }, gap: 2, mb: 2.5 }}><Paper sx={{ minWidth: 0, p: 2, maxHeight: 300, overflowY: 'auto' }}><Typography variant="overline" color="text.secondary">WATCHLIST · {watchlist.length} SYMBOLS</Typography>{watchlist.length === 0 ? <Typography variant="body2" color="text.secondary" mt={1}>No selected symbols yet.</Typography> : <Stack divider={<Divider flexItem />} mt={1}>{watchlist.map(item => <Stack key={item.instrumentToken} direction="row" justifyContent="space-between" alignItems="center" py={1} gap={1}><Box sx={{ minWidth: 0 }}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{item.symbol}</Typography><Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{status?.latestPrices?.[item.instrumentToken] ? `${money(status.latestPrices[item.instrumentToken])} · ${status.lastTickAt ? new Date(status.lastTickAt).toLocaleTimeString() : 'tick'}` : 'Waiting for first tick'}</Typography></Box><Button size="small" color="error" onClick={() => removeSymbol(item.instrumentToken, item.symbol)} disabled={busy || connected}>Remove</Button></Stack>)}</Stack>}</Paper><Paper sx={{ minWidth: 0, p: 2, maxHeight: 300, overflowY: 'auto' }}><Typography variant="overline" color="text.secondary">SIGNAL HISTORY · ACTIONABLE ONLY</Typography>{signals.length === 0 ? <Typography variant="body2" color="text.secondary" mt={1}>{connected ? 'No actionable signal yet.' : 'Start the monitor after adding symbols.'}</Typography> : <Stack divider={<Divider flexItem />} mt={1}>{signals.slice(0, 20).map(signal => <Box key={`${signal.instrumentToken}-${signal.candleStart}`} py={1}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }} color={signal.type === 'WATCH_LONG' ? 'success.main' : 'error.main'}>{signal.symbol} · {signal.type}</Typography><Typography variant="caption" color="text.secondary">{money(signal.referencePrice)} · {new Date(signal.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Typography></Box>)}</Stack>}</Paper></Box>
-      <Paper sx={{ minWidth: 0, p: 2, mb: 2.5 }}><Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={.75} mb={1}><Typography variant="overline" color="text.secondary">COMPLETED LIVE CANDLES</Typography><Typography variant="caption" color="text.secondary">{candles.length ? 'Latest candles shown first' : 'No completed candle received in this run'}</Typography></Stack>{candles.length === 0 ? <Typography variant="body2" color="text.secondary">The first row appears after the next five-minute boundary receives a tick.</Typography> : <Box sx={{ overflow: 'auto', maxHeight: 350 }}><table className="candle-table"><thead><tr><th>Symbol / time</th><th>OHLC</th><th>Volume</th><th>Evaluation</th><th>VWAP</th></tr></thead><tbody>{candles.slice(0, 30).map(candle => <tr key={`${candle.instrumentToken}-${candle.candleStart}`}><td><strong>{candle.symbol}</strong><small>{new Date(candle.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></td><td>{money(candle.open)} / {money(candle.high)} / {money(candle.low)} / {money(candle.close)}</td><td>{candle.volume.toLocaleString()}</td><td>{candle.evaluationType}</td><td>{candle.vwap ? money(candle.vwap) : '—'}</td></tr>)}</tbody></table></Box>}</Paper>
+      <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'repeat(2,minmax(0,1fr))' }, gap: 2, mb: 2.5 }}><Paper sx={{ minWidth: 0, p: 2, maxHeight: 360, overflowY: 'auto' }}><Typography variant="overline" color="text.secondary">WATCHLIST · {watchlist.length} SYMBOLS</Typography>{watchlist.length === 0 ? <Typography variant="body2" color="text.secondary" mt={1}>No selected symbols yet.</Typography> : <Stack divider={<Divider flexItem />} mt={1}>{watchlist.map(item => <Stack key={item.instrumentToken} direction="row" justifyContent="space-between" alignItems="center" py={1} gap={1}><Box sx={{ minWidth: 0 }}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{item.symbol}</Typography><Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{status?.latestPrices?.[item.instrumentToken] ? `${money(status.latestPrices[item.instrumentToken])} · ${status.lastTickAt ? new Date(status.lastTickAt).toLocaleTimeString() : 'tick'}` : 'Waiting for first tick'}</Typography></Box><Button size="small" color="error" onClick={() => removeSymbol(item.instrumentToken, item.symbol)} disabled={busy || connected}>Remove</Button></Stack>)}</Stack>}</Paper><Paper sx={{ minWidth: 0, p: 2, maxHeight: 360, overflowY: 'auto' }}><Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}><Typography variant="overline" color="text.secondary">SIGNALS · THIS SESSION</Typography><Typography variant="caption" color="text.secondary">{signalsPage.totalElements || 0} total</Typography></Stack>{signalsPage.items.length === 0 ? <Typography variant="body2" color="text.secondary" mt={1}>{connected ? 'No actionable signal yet.' : 'Start the monitor after adding symbols.'}</Typography> : <Stack divider={<Divider flexItem />} mt={1}>{signalsPage.items.map(signal => <Box key={`${signal.instrumentToken}-${signal.candleStart}`} py={1}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }} color={signal.type === 'WATCH_LONG' ? 'success.main' : 'error.main'}>{signal.symbol} · {signal.type}</Typography><Typography variant="caption" color="text.secondary">{money(signal.referencePrice)} · {new Date(signal.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Typography></Box>)}</Stack>}{signalsPage.totalPages > 1 && <Pagination sx={{ mt: 1 }} size="small" count={signalsPage.totalPages} page={signalsPage.page + 1} onChange={(_, value) => refresh(value - 1, candlesPage.page)} disabled={busy} />}</Paper></Box>
+      <Paper sx={{ minWidth: 0, p: 2, mb: 2.5 }}><Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={.75} mb={1}><Box><Typography variant="overline" color="text.secondary">COMPLETED LIVE CANDLES · THIS SESSION</Typography><Typography variant="caption" display="block" color="text.secondary">{candlesPage.totalElements ? `${candlesPage.totalElements} completed evaluations` : 'No completed candle received in this run'}</Typography></Box></Stack>{candlesPage.items.length === 0 ? <Typography variant="body2" color="text.secondary">The first row appears after the next five-minute boundary receives a tick.</Typography> : <Box sx={{ overflow: 'auto', maxHeight: 350 }}><table className="candle-table"><thead><tr><th>Symbol / time</th><th>OHLC</th><th>Volume</th><th>Evaluation</th><th>VWAP</th></tr></thead><tbody>{candlesPage.items.map(candle => <tr key={`${candle.instrumentToken}-${candle.candleStart}`}><td><strong>{candle.symbol}</strong><small>{new Date(candle.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></td><td>{money(candle.open)} / {money(candle.high)} / {money(candle.low)} / {money(candle.close)}</td><td>{candle.volume.toLocaleString()}</td><td>{candle.evaluationType}</td><td>{candle.vwap ? money(candle.vwap) : '—'}</td></tr>)}</tbody></table></Box>}{candlesPage.totalPages > 1 && <Pagination sx={{ mt: 1 }} size="small" count={candlesPage.totalPages} page={candlesPage.page + 1} onChange={(_, value) => refresh(signalsPage.page, value - 1)} disabled={busy} />}</Paper>
       {status?.lastError && <Alert severity="error" sx={{ mb: 2 }}>{status.lastError}</Alert>}
-      <Paper component="details" sx={{ p: 2 }}><Typography component="summary" fontWeight={750} sx={{ cursor: 'pointer' }}>Last 7 days · persisted monitor history ({history.signals?.length || 0} signals, {history.candles?.length || 0} candles)</Typography><Box sx={{ mt: 2, maxHeight: 260, overflowY: 'auto' }}>{history.signals?.length ? history.signals.slice(0, 30).map(item => <Box key={item.instrumentToken + '-' + item.candleStart} py={.75}><Typography variant="body2" fontWeight={700}>{item.symbol} · {item.type}</Typography><Typography variant="caption" color="text.secondary">{new Date(item.candleStart).toLocaleString()}</Typography></Box>) : <Typography variant="body2" color="text.secondary" mt={1}>No signal history.</Typography>}</Box></Paper>
+      <Alert severity="info" action={<Button size="small" onClick={onOpenMonitorHistory}>Open history</Button>}>Current monitoring is session-scoped. Review the last seven days on the separate Monitor history page; older rows are archived automatically.</Alert>
     </CardContent></Card>
   </ThemeProvider>
+}
+
+function MonitorHistoryMUI({ notify }) {
+  const emptyPage = { items: [], page: 0, pageSize: 10, totalElements: 0, totalPages: 0 }
+  const [history, setHistory] = useState({ days: 7, signals: emptyPage, candles: emptyPage })
+  const [loading, setLoading] = useState(false)
+
+  async function load(signalPage = history.signals.page, candlePage = history.candles.page) {
+    setLoading(true)
+    try {
+      const response = await apiFetch(`/api/v1/live-market/history/page?days=7&signalPage=${signalPage}&candlePage=${candlePage}&pageSize=10`)
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'Monitor history could not be loaded')
+      setHistory(data)
+    } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setLoading(false) }
+  }
+
+  useEffect(() => { load(0, 0) }, [])
+  const signals = history.signals || emptyPage
+  const candles = history.candles || emptyPage
+  const pagination = (page, onChange) => <Pagination color="primary" size="small" count={Math.max(1, page.totalPages || 0)} page={page.page + 1} onChange={(_, value) => onChange(value - 1)} disabled={loading || page.totalPages <= 1} />
+
+  return <Box sx={{ minWidth: 0, display: 'grid', gap: 2.5 }}>
+    <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2, md: 3 } }}>
+      <PageHeading eyebrow="READ-ONLY RETENTION" title="Monitor history" description="Completed signals and candles from the last seven days are retained here for review. The live monitor shows only the current NSE session; older rows are archived automatically." action={<Button variant="outlined" onClick={() => load()} disabled={loading}>↻ Refresh</Button>} />
+      <Alert severity="info" sx={{ mb: 2 }}>This page is intentionally separate from the live feed, so yesterday’s watchlist and signals cannot appear as today’s monitoring state.</Alert>
+      {loading && <LinearProgress sx={{ mb: 2 }} />}
+      <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', lg: 'minmax(0,1fr) minmax(0,1.3fr)' }, gap: 2 }}>
+        <Paper sx={{ minWidth: 0, p: 2, ...insetSx }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} mb={1.5}><Box><Typography variant="overline" color="text.secondary">SIGNALS · LAST 7 DAYS</Typography><Typography variant="h6">{signals.totalElements} recorded</Typography></Box><Chip label={`Page ${signals.page + 1}/${Math.max(1, signals.totalPages || 0)}`} size="small" /></Stack>
+          {signals.items.length === 0 ? <Typography variant="body2" color="text.secondary">No signal history in the retention window.</Typography> : <Stack divider={<Divider flexItem />}>{signals.items.map((signal, index) => <Box key={`${signal.instrumentToken}-${signal.candleStart}-${index}`} py={1.2}><Stack direction="row" justifyContent="space-between" gap={1}><Typography fontWeight={800} color={signal.type === 'WATCH_LONG' ? 'success.main' : 'error.main'}>{signal.symbol} · {signal.type}</Typography><Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>{new Date(signal.candleStart).toLocaleString()}</Typography></Stack><Typography variant="caption" color="text.secondary">Reference {money(signal.referencePrice)} · VWAP {signal.vwap ? money(signal.vwap) : '—'}</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .4, overflowWrap: 'anywhere' }}>{signal.reasons}</Typography></Box>)}</Stack>}
+          <Stack alignItems="center" mt={1.5}>{pagination(signals, value => load(value, candles.page))}</Stack>
+        </Paper>
+        <Paper sx={{ minWidth: 0, p: 2, ...insetSx }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} mb={1.5}><Box><Typography variant="overline" color="text.secondary">COMPLETED CANDLES · LAST 7 DAYS</Typography><Typography variant="h6">{candles.totalElements} recorded</Typography></Box><Chip label={`Page ${candles.page + 1}/${Math.max(1, candles.totalPages || 0)}`} size="small" /></Stack>
+          {candles.items.length === 0 ? <Typography variant="body2" color="text.secondary">No completed candle evaluations in the retention window.</Typography> : <TableContainer sx={{ maxHeight: 420, overflowX: 'auto' }}><Table stickyHeader size="small"><TableHead><TableRow>{['Symbol / time', 'OHLC', 'Volume', 'Evaluation', 'VWAP'].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{candles.items.map((candle, index) => <TableRow hover key={`${candle.instrumentToken}-${candle.candleStart}-${index}`}><TableCell sx={{ whiteSpace: 'nowrap' }}><Typography fontWeight={800}>{candle.symbol}</Typography><Typography variant="caption" color="text.secondary">{new Date(candle.candleStart).toLocaleString()}</Typography></TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{money(candle.open)} / {money(candle.high)} / {money(candle.low)} / {money(candle.close)}</TableCell><TableCell>{Number(candle.volume || 0).toLocaleString()}</TableCell><TableCell><Chip size="small" label={candle.evaluationType} color={candle.evaluationType === 'WATCH_LONG' ? 'success' : candle.evaluationType === 'WATCH_SHORT' ? 'error' : 'default'} variant="outlined" /></TableCell><TableCell>{candle.vwap ? money(candle.vwap) : '—'}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}
+          <Stack alignItems="center" mt={1.5}>{pagination(candles, value => load(signals.page, value))}</Stack>
+        </Paper>
+      </Box>
+    </CardContent></Card>
+  </Box>
 }
 
 function Journal({ notify }) {

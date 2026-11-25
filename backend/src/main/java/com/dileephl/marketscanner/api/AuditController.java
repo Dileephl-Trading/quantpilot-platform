@@ -15,4 +15,11 @@ public class AuditController {
     public AuditController(AuditTrailService audit) { this.audit = audit; }
     @GetMapping("/events")
     public List<AuditEventView> events(@RequestParam(defaultValue = "100") int limit) { return audit.recent(limit); }
+
+    @GetMapping("/events/page")
+    public PagedResponse<AuditEventView> eventPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int pageSize) {
+        return audit.recentPage(page, pageSize);
+    }
 }

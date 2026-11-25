@@ -50,13 +50,34 @@ public class LiveMarketController {
             @RequestParam(defaultValue = "25") int limit) {
         return ResponseEntity.ok(liveMarketService.recentSignals(symbol, type, limit));
     }
+    @GetMapping("/signals/page") public ResponseEntity<PagedResponse<LiveSignalView>> signalPage(
+            @RequestParam(required = false) String symbol,
+            @RequestParam(required = false) String type,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int pageSize) {
+        return ResponseEntity.ok(liveMarketService.currentSignalsPage(symbol, type, page, pageSize));
+    }
     @GetMapping("/candles") public ResponseEntity<List<LiveCandleView>> candles() { return ResponseEntity.ok(liveMarketService.recentCandles()); }
+    @GetMapping("/candles/page") public ResponseEntity<PagedResponse<LiveCandleView>> candlePage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int pageSize) {
+        return ResponseEntity.ok(liveMarketService.currentCandlesPage(page, pageSize));
+    }
     @GetMapping("/history")
     public ResponseEntity<Map<String, Object>> history(@RequestParam(defaultValue = "7") int days) {
         return ResponseEntity.ok(Map.of(
                 "days", Math.max(1, Math.min(days, 7)),
                 "signals", liveMarketService.historySignals(days),
                 "candles", liveMarketService.historyCandles(days)));
+    }
+
+    @GetMapping("/history/page")
+    public ResponseEntity<LiveMarketService.MonitorHistoryPage> historyPage(
+            @RequestParam(defaultValue = "7") int days,
+            @RequestParam(defaultValue = "0") int signalPage,
+            @RequestParam(defaultValue = "0") int candlePage,
+            @RequestParam(defaultValue = "10") int pageSize) {
+        return ResponseEntity.ok(liveMarketService.historyPage(days, signalPage, candlePage, pageSize));
     }
 
     public record AddWatchlistRequest(@Positive long instrumentToken) { }

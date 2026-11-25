@@ -1,5 +1,6 @@
 package com.dileephl.marketscanner.live;
 
+import com.dileephl.marketscanner.api.PagedResponse;
 import com.dileephl.marketscanner.ingestion.FiveMinuteCandleAggregator;
 import com.dileephl.marketscanner.ingestion.MarketTick;
 import com.dileephl.marketscanner.integration.marketdata.CandleInterval;
@@ -19,6 +20,7 @@ import com.dileephl.marketscanner.service.SignalEngine.TradeSignal;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalTime;
 import java.time.LocalDate;
@@ -46,6 +48,7 @@ public class LiveMarketService {
     private final FiveMinuteCandleAggregator aggregator;
     private final ScannerProperties scannerProperties;
     private final AutomatedExecutionService automatedExecution;
+    private static final int MAX_PAGE_SIZE = 50;
     private final Map<Long, String> symbolsByToken = new HashMap<>();
     private final Map<String, List<Candle>> candlesBySymbol = new HashMap<>();
 
@@ -158,14 +161,29 @@ public class LiveMarketService {
         String symbolFilter = symbol == null ? "" : symbol.trim();
         String typeFilter = type == null ? "" : type.trim();
         int safeLimit = Math.max(1, Math.min(limit, 200));
-        return signalRepository.findTop200ByOrderByGeneratedAtDesc().stream()
-                .filter(item -> symbolFilter.isEmpty() || item.getSymbol().equalsIgnoreCase(symbolFilter))
-                .filter(item -> typeFilter.isEmpty() || item.getSignalType().equalsIgnoreCase(typeFilter))
-                .limit(safeLimit).map(LiveSignalView::from).toList();
+        return currentSignalsPage(symbolFilter, typeFilter, 0, safeLimit).items();
     }
 
     @Transactional(readOnly = true)
-    public List<LiveCandleView> recentCandles() { return candleRepository.findTop100ByOrderByCandleStartDesc().stream().map(LiveCandleView::from).toList(); }
+    public List<LiveCandleView> recentCandles() { return currentCandlesPage(0, 100).items(); }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<LiveSignalView> currentSignalsPage(String symbol, String type, int page, int pageSize) {
+        int safePage = Math.max(0, page);
+        int safePageSize = Math.max(1, Math.min(pageSize, MAX_PAGE_SIZE));
+        String symbolFilter = symbol == null ? "" : symbol.trim();
+        String typeFilter = type == null ? "" : type.trim();
+        return PagedResponse.from(signalRepository.findSince(sessionStart(), symbolFilter, typeFilter,
+                PageRequest.of(safePage, safePageSize)), LiveSignalView::from);
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<LiveCandleView> currentCandlesPage(int page, int pageSize) {
+        int safePage = Math.max(0, page);
+        int safePageSize = Math.max(1, Math.min(pageSize, MAX_PAGE_SIZE));
+        return PagedResponse.from(candleRepository.findByGeneratedAtGreaterThanEqualOrderByGeneratedAtDesc(
+                sessionStart(), PageRequest.of(safePage, safePageSize)), LiveCandleView::from);
+    }
 
     @Transactional(readOnly = true)
     public List<LiveSignalView> historySignals(int days) {
@@ -182,6 +200,26 @@ public class LiveMarketService {
         return candleRepository.findByGeneratedAtAfterOrderByGeneratedAtDesc(cutoff).stream()
                 .map(LiveCandleView::from).toList();
     }
+
+    @Transactional(readOnly = true)
+    public MonitorHistoryPage historyPage(int days, int signalPage, int candlePage, int pageSize) {
+        int safeDays = Math.max(1, Math.min(days, 7));
+        int safePageSize = Math.max(1, Math.min(pageSize, MAX_PAGE_SIZE));
+        OffsetDateTime cutoff = OffsetDateTime.now(INDIA_OFFSET).minusDays(safeDays);
+        return new MonitorHistoryPage(safeDays,
+                PagedResponse.from(signalRepository.findSince(cutoff, "", "",
+                        PageRequest.of(Math.max(0, signalPage), safePageSize)), LiveSignalView::from),
+                PagedResponse.from(candleRepository.findByGeneratedAtGreaterThanEqualOrderByGeneratedAtDesc(
+                        cutoff, PageRequest.of(Math.max(0, candlePage), safePageSize)), LiveCandleView::from));
+    }
+
+    private OffsetDateTime sessionStart() {
+        return OffsetDateTime.now(INDIA_OFFSET).toLocalDate()
+                .atTime(LocalTime.of(9, 15)).atOffset(INDIA_OFFSET);
+    }
+
+    public record MonitorHistoryPage(int days, PagedResponse<LiveSignalView> signals,
+                                     PagedResponse<LiveCandleView> candles) { }
 
     private synchronized void acceptTick(LiveMarketTick tick) {
         if (!marketSessionService.isOpen(tick.timestamp())) return;
