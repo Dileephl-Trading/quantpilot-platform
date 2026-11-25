@@ -256,19 +256,19 @@ function App() {
       <nav className="workspace-nav">
         <button className={active === 'overview' ? 'nav-link active' : 'nav-link'} onClick={() => setActive('overview')}><span>▦</span> Overview</button>
         <MenuGroup label="Trading" icon="⇄" open={openGroups.trading} active={active === 'risk' || active === 'execution'} onToggle={() => toggleGroup('trading')}>
-          <MenuItem active={active === 'risk'} onClick={() => setActive('risk')} icon="◈">Risk preview</MuiMenuItem>
-          <MenuItem active={active === 'execution'} onClick={() => setActive('execution')} icon="⇄">Execution</MuiMenuItem>
+          <MenuItem active={active === 'risk'} onClick={() => setActive('risk')} icon="◈">Risk preview</MenuItem>
+          <MenuItem active={active === 'execution'} onClick={() => setActive('execution')} icon="⇄">Execution</MenuItem>
         </MenuGroup>
         <MenuGroup label="Records" icon="▤" open={openGroups.records} active={active === 'audit' || active === 'journal'} onToggle={() => toggleGroup('records')}>
-          <MenuItem active={active === 'audit'} onClick={() => setActive('audit')} icon="▥">Audit log</MuiMenuItem>
-          <MenuItem active={active === 'journal'} onClick={() => setActive('journal')} icon="▤">Trade journal</MuiMenuItem>
+          <MenuItem active={active === 'audit'} onClick={() => setActive('audit')} icon="▥">Audit log</MenuItem>
+          <MenuItem active={active === 'journal'} onClick={() => setActive('journal')} icon="▤">Trade journal</MenuItem>
         </MenuGroup>
         <MenuGroup label="Market data" icon="◌" open={openGroups.market} active={active === 'integration' || active === 'monitorHistory'} onToggle={() => toggleGroup('market')}>
-          <MenuItem active={active === 'integration'} onClick={() => setActive('integration')} icon="◌">Connection & data</MuiMenuItem>
-          <MenuItem active={active === 'monitorHistory'} onClick={() => setActive('monitorHistory')} icon="◴">Monitor history</MuiMenuItem>
+          <MenuItem active={active === 'integration'} onClick={() => setActive('integration')} icon="◌">Connection & data</MenuItem>
+          <MenuItem active={active === 'monitorHistory'} onClick={() => setActive('monitorHistory')} icon="◴">Monitor history</MenuItem>
         </MenuGroup>
         <MenuGroup label="Configuration" icon="⚙" open={openGroups.configuration} active={active === 'settings'} onToggle={() => toggleGroup('configuration')}>
-          <MenuItem active={active === 'settings'} onClick={() => setActive('settings')} icon="⚙">Trading profile</MuiMenuItem>
+          <MenuItem active={active === 'settings'} onClick={() => setActive('settings')} icon="⚙">Trading profile</MenuItem>
         </MenuGroup>
       </nav>
       <div className="sidebar-footer">
