@@ -40,6 +40,7 @@ import jakarta.annotation.PreDestroy;
 
 @Service
 public class LiveMarketService {
+    private static final List<String> ACTIONABLE_EVALUATIONS = List.of("WATCH_LONG", "WATCH_SHORT");
     private static final ZoneOffset INDIA_OFFSET = ZoneOffset.ofHoursMinutes(5, 30);
     private final LiveMarketDataFeed liveFeed;
     private final MarketDataProvider marketDataProvider;
@@ -299,8 +300,8 @@ public class LiveMarketService {
     public PagedResponse<LiveCandleView> currentCandlesPage(int page, int pageSize) {
         int safePage = Math.max(0, page);
         int safePageSize = Math.max(1, Math.min(pageSize, MAX_PAGE_SIZE));
-        return PagedResponse.from(candleRepository.findByGeneratedAtGreaterThanEqualOrderByGeneratedAtDesc(
-                sessionStart(), PageRequest.of(safePage, safePageSize)), LiveCandleView::from);
+        return PagedResponse.from(candleRepository.findByGeneratedAtGreaterThanEqualAndEvaluationTypeInOrderByGeneratedAtDesc(
+                sessionStart(), ACTIONABLE_EVALUATIONS, PageRequest.of(safePage, safePageSize)), LiveCandleView::from);
     }
 
     @Transactional(readOnly = true)
@@ -315,7 +316,7 @@ public class LiveMarketService {
     public List<LiveCandleView> historyCandles(int days) {
         int safeDays = Math.max(1, Math.min(days, 7));
         OffsetDateTime cutoff = OffsetDateTime.now(INDIA_OFFSET).minusDays(safeDays);
-        return candleRepository.findByGeneratedAtAfterOrderByGeneratedAtDesc(cutoff).stream()
+        return candleRepository.findByGeneratedAtAfterAndEvaluationTypeInOrderByGeneratedAtDesc(cutoff, ACTIONABLE_EVALUATIONS).stream()
                 .map(LiveCandleView::from).toList();
     }
 
@@ -327,8 +328,8 @@ public class LiveMarketService {
         return new MonitorHistoryPage(safeDays,
                 PagedResponse.from(signalRepository.findSince(cutoff, "", "",
                         PageRequest.of(Math.max(0, signalPage), safePageSize)), LiveSignalView::from),
-                PagedResponse.from(candleRepository.findByGeneratedAtGreaterThanEqualOrderByGeneratedAtDesc(
-                        cutoff, PageRequest.of(Math.max(0, candlePage), safePageSize)), LiveCandleView::from));
+                PagedResponse.from(candleRepository.findByGeneratedAtGreaterThanEqualAndEvaluationTypeInOrderByGeneratedAtDesc(
+                        cutoff, ACTIONABLE_EVALUATIONS, PageRequest.of(Math.max(0, candlePage), safePageSize)), LiveCandleView::from));
     }
 
     private OffsetDateTime sessionStart() {

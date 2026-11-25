@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -13,4 +14,6 @@ public interface LiveCandleRepository extends JpaRepository<LiveCandleEntity, UU
     List<LiveCandleEntity> findTop100ByOrderByCandleStartDesc();
     List<LiveCandleEntity> findByGeneratedAtAfterOrderByGeneratedAtDesc(OffsetDateTime cutoff);
     Page<LiveCandleEntity> findByGeneratedAtGreaterThanEqualOrderByGeneratedAtDesc(OffsetDateTime cutoff, Pageable pageable);
+    List<LiveCandleEntity> findByGeneratedAtAfterAndEvaluationTypeInOrderByGeneratedAtDesc(OffsetDateTime cutoff, Collection<String> evaluationTypes);
+    Page<LiveCandleEntity> findByGeneratedAtGreaterThanEqualAndEvaluationTypeInOrderByGeneratedAtDesc(OffsetDateTime cutoff, Collection<String> evaluationTypes, Pageable pageable);
 }
