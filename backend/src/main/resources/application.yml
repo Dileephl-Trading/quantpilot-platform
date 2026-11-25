@@ -82,3 +82,5 @@ scanner:
     login-base-url: ${KITE_LOGIN_BASE_URL:https://kite.zerodha.com}
     websocket-base-url: ${KITE_WEBSOCKET_BASE_URL:wss://ws.kite.trade}
     session-encryption-key: ${KITE_SESSION_ENCRYPTION_KEY:}
+    automation-supervisor-ms: ${AUTOMATION_SUPERVISOR_POLL_MS:15000}
+    automation-supervisor-initial-delay-ms: ${AUTOMATION_SUPERVISOR_INITIAL_DELAY_MS:5000}

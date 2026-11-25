@@ -49,16 +49,19 @@ public class LiveExecutionPreflightService {
         TradingProfile profile = profiles.current();
         OffsetDateTime now = OffsetDateTime.now(INDIA);
         boolean marketOpen = sessions.isOpen(now);
+        boolean newEntryWindow = sessions.isNewEntryAllowed(now);
         boolean uncertain = safetyStates.findById(1).map(AutomationSafetyStateEntity::uncertainBrokerState).orElse(false);
 
         List<Check> checks = List.of(
                 check("liveExecutionEnabled", liveProperties.isEnabled(), "LIVE_EXECUTION_ENABLED must be true"),
                 check("automatedExecutionEnabled", automationProperties.isEnabled(), "AUTOMATED_EXECUTION_ENABLED must be true"),
                 check("profileLive", profile.mode() == TradingMode.LIVE, "Trading profile mode must be LIVE"),
+                check("kiteMarketDataEnabled", kiteProperties.isMarketDataEnabled(), "KITE_MARKET_DATA_ENABLED must be true"),
                 check("kiteRoutingEnabled", kiteProperties.isOrderRoutingEnabled(), "KITE_ORDER_ROUTING_ENABLED must be true"),
                 check("kiteCredentialsConfigured", kiteProperties.hasApiKey() && kiteProperties.hasApiSecret(), "Kite API key and secret must be configured"),
                 check("kiteSessionConnected", auth.hasCurrentAccessToken(), "Complete today's Kite login"),
                 check("marketSessionOpen", marketOpen, "NSE cash session is closed"),
+                check("newEntryWindow", newEntryWindow, "New entries are allowed only from 09:30 until 14:45"),
                 check("killSwitchDisabled", !safety.state().killSwitchEnabled(), "Kill switch is enabled"),
                 check("brokerStateCertain", !uncertain, "Broker state is uncertain; reconcile before resuming")
         );

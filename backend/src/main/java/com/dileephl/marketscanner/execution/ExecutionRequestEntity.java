@@ -25,6 +25,8 @@ class ExecutionRequestEntity {
     @Column(length = 16) private String product;
     @Column(length = 16) private String exchange;
     @Column(length = 16) private String validity;
+    @Column(nullable = false) private boolean protective;
+    @Column(length = 64) private String parentOrderId;
     @Column(nullable = false, columnDefinition = "TEXT") private String message;
     @Column(nullable = false) private OffsetDateTime createdAt;
     @Column(nullable = false) private OffsetDateTime updatedAt;
@@ -37,8 +39,17 @@ class ExecutionRequestEntity {
         e.orderType = request.orderType(); e.price = request.price(); e.triggerPrice = request.triggerPrice(); e.stopPrice = request.stopPrice();
         e.requestFingerprint = BrokerOrderFingerprint.of(request);
         e.product = request.product(); e.exchange = request.exchange(); e.validity = request.validity();
+        e.protective = false; e.parentOrderId = null;
         e.message = response.message() == null ? "" : response.message(); e.createdAt = response.observedAt(); e.updatedAt = response.observedAt();
         return e;
+    }
+
+    static ExecutionRequestEntity fromProtective(String key, BrokerOrderRequest request,
+                                                 BrokerOrderResponse response, String parentOrderId) {
+        ExecutionRequestEntity entity = from(key, request, response);
+        entity.protective = true;
+        entity.parentOrderId = parentOrderId;
+        return entity;
     }
     void apply(BrokerOrderResponse response) {
         status = response.status().name();
@@ -54,6 +65,16 @@ class ExecutionRequestEntity {
     String symbol() { return symbol; }
     String side() { return side; }
     String status() { return status; }
+    boolean protective() { return protective; }
+    String parentOrderId() { return parentOrderId; }
+    long quantity() { return quantity; }
+    long filledQuantity() { return filledQuantity; }
+    BigDecimal stopPrice() { return stopPrice; }
+    BigDecimal price() { return price; }
+    String orderType() { return orderType; }
+    String product() { return product; }
+    String exchange() { return exchange; }
+    String validity() { return validity; }
     OffsetDateTime updatedAt() { return updatedAt; }
     OffsetDateTime createdAt() { return createdAt; }
     boolean matches(BrokerOrderRequest request) { return requestFingerprint == null || requestFingerprint.equals(BrokerOrderFingerprint.of(request)); }

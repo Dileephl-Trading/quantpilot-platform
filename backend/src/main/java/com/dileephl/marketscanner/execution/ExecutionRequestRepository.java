@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.OffsetDateTime;
 
 interface ExecutionRequestRepository extends JpaRepository<ExecutionRequestEntity, UUID> {
     Optional<ExecutionRequestEntity> findByIdempotencyKey(String idempotencyKey);
@@ -13,5 +14,8 @@ interface ExecutionRequestRepository extends JpaRepository<ExecutionRequestEntit
     List<ExecutionRequestEntity> findByStatusIn(Collection<String> statuses);
     long countByStatusIn(Collection<String> statuses);
     Optional<ExecutionRequestEntity> findTopBySymbolOrderByCreatedAtDesc(String symbol);
+    Optional<ExecutionRequestEntity> findTopBySymbolAndProtectiveFalseOrderByCreatedAtDesc(String symbol);
     java.util.Optional<ExecutionRequestEntity> findByOrderId(String orderId);
+    Optional<ExecutionRequestEntity> findByParentOrderIdAndProtectiveTrue(String parentOrderId);
+    List<ExecutionRequestEntity> findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(OffsetDateTime createdAt);
 }

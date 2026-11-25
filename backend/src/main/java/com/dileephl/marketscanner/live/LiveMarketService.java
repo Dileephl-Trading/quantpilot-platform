@@ -33,6 +33,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import jakarta.annotation.PreDestroy;
 
 @Service
 public class LiveMarketService {
@@ -51,6 +54,12 @@ public class LiveMarketService {
     private static final int MAX_PAGE_SIZE = 50;
     private final Map<Long, String> symbolsByToken = new HashMap<>();
     private final Map<String, List<Candle>> candlesBySymbol = new HashMap<>();
+    private LocalDate manualStopDate;
+    private final ExecutorService executionExecutor = Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "quantpilot-live-execution");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public LiveMarketService(LiveMarketDataFeed liveFeed, MarketDataProvider marketDataProvider,
                              MarketInstrumentRepository instrumentRepository, WatchlistEntryRepository watchlistRepository,
@@ -108,27 +117,51 @@ public class LiveMarketService {
     }
 
     private List<WatchlistEntryEntity> currentSessionEntries() {
-        LocalDate today = OffsetDateTime.now(INDIA_OFFSET).toLocalDate();
-        return watchlistRepository.findByProviderAndEnabledTrueOrderBySymbolAsc(liveFeed.providerName()).stream()
-                .filter(entry -> entry.getAddedAt() != null
-                        && entry.getAddedAt().toInstant().atZone(INDIA_OFFSET).toLocalDate().equals(today))
-                .toList();
+        // The enabled watchlist is configuration, not session history. Keep it
+        // across trading days so the server can resume automatically after the
+        // next valid Kite login. Current-session signal/candle queries are
+        // independently bounded by sessionStart(), so yesterday's observations
+        // never leak into today's monitor view.
+        return watchlistRepository.findByProviderAndEnabledTrueOrderBySymbolAsc(liveFeed.providerName());
     }
 
     @Scheduled(fixedDelay = 30000)
     public synchronized void stopAfterSession() {
-        if ("CONNECTED".equalsIgnoreCase(liveFeed.status().state()) && !marketSessionService.isOpenNow()) {
-            liveFeed.stop();
-            symbolsByToken.clear();
-            candlesBySymbol.clear();
+        if (!marketSessionService.isOpenNow() && !"STOPPED".equalsIgnoreCase(liveFeed.status().state())) {
+            stopForSessionBoundary();
         }
     }
 
     public synchronized LiveFeedStatus start() {
+        manualStopDate = null;
+        return startInternal();
+    }
+
+    /** Called by the server-side supervisor; browser authentication is not involved. */
+    public synchronized LiveFeedStatus startAutomatically() {
+        if (manualStopDate != null && manualStopDate.equals(today())) return liveFeed.status();
+        return startInternal();
+    }
+
+    /** A manual stop suppresses same-day automatic restarts, but not the next session. */
+    public synchronized LiveFeedStatus stop() {
+        manualStopDate = today();
+        stopFeed();
+        return liveFeed.status();
+    }
+
+    /** Used for session close or a missing/expired Kite token. */
+    public synchronized void stopForSessionBoundary() {
+        stopFeed();
+    }
+
+    private synchronized LiveFeedStatus startInternal() {
         if (!marketSessionService.isOpenNow()) {
             throw new IllegalStateException("Live monitoring is available only during the NSE cash session: "
                     + marketSessionService.status().reason());
         }
+        String state = liveFeed.status().state();
+        if (!"STOPPED".equalsIgnoreCase(state)) return liveFeed.status();
         List<WatchlistEntryEntity> entries = currentSessionEntries();
         if (entries.isEmpty()) throw new IllegalStateException("Add at least one synced symbol to the live watchlist first");
         aggregator.reset();
@@ -150,7 +183,20 @@ public class LiveMarketService {
         return liveFeed.status();
     }
 
-    public synchronized LiveFeedStatus stop() { liveFeed.stop(); return liveFeed.status(); }
+    private void stopFeed() {
+        liveFeed.stop();
+        symbolsByToken.clear();
+        candlesBySymbol.clear();
+        aggregator.reset();
+    }
+
+    private LocalDate today() { return OffsetDateTime.now(INDIA_OFFSET).toLocalDate(); }
+
+    @PreDestroy
+    void shutdownExecutionExecutor() {
+        executionExecutor.shutdownNow();
+    }
+
     public LiveFeedStatus status() { return liveFeed.status(); }
 
     @Transactional(readOnly = true)
@@ -249,8 +295,11 @@ public class LiveMarketService {
             signalRepository.save(new LiveSignalEntity(liveFeed.providerName(), instrumentToken, symbol, candle.timestamp(),
                     signal.type().name(), signal.referencePrice(), signal.vwap(), signal.invalidationReference(),
                     signal.openingRangeHigh(), signal.openingRangeLow(), signal.averageVolume(), signal.volumeThreshold(), reasons));
-            automatedExecution.onCompletedSignal(liveFeed.providerName(), instrumentToken, symbol, candle, signal,
-                    scannerProperties.getCandleInterval());
+            // Never block Kite's WebSocket callback while the broker HTTP API
+            // and its second risk layer are running. Candle ingestion remains
+            // ordered; order submission is serialized on this worker.
+            executionExecutor.submit(() -> automatedExecution.onCompletedSignal(liveFeed.providerName(), instrumentToken,
+                    symbol, candle, signal, scannerProperties.getCandleInterval()));
         }
     }
 }

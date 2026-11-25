@@ -142,6 +142,7 @@ public class KiteLiveMarketDataFeed implements LiveMarketDataFeed {
             if (generation == connectionGeneration.get() && message.toString().contains("\"type\":\"error\"")) {
                 String text = message.toString().toLowerCase();
                 if (text.contains("token") || text.contains("expired") || text.contains("invalid")) {
+                    authService.markInvalid();
                     KiteLiveMarketDataFeed.this.stop();
                     lastError = "Kite session expired or is invalid; connect Kite again for today's session";
                     webSocket.abort();

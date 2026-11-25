@@ -20,6 +20,19 @@ public class ExecutionPreviewService {
 
     public OrderPreview preview(OrderRequest request) {
         TradingProfile profile = profiles.current();
+        return preview(request, profile.mode() == com.dileephl.marketscanner.config.TradingMode.PAPER);
+    }
+
+    /**
+     * Live orders use the broker-aware risk layer, not the paper journal.  A
+     * paper intent left open in the UI must never consume live capacity.
+     */
+    public OrderPreview previewLive(OrderRequest request) {
+        return preview(request, false);
+    }
+
+    private OrderPreview preview(OrderRequest request, boolean includePaperJournalGuards) {
+        TradingProfile profile = profiles.current();
         List<String> reasons = new ArrayList<>();
         if (request == null || request.symbol() == null || request.symbol().isBlank() || request.side() == null) {
             return new OrderPreview(false, 0, BigDecimal.ZERO,
@@ -46,7 +59,7 @@ public class ExecutionPreviewService {
         BigDecimal proposedRisk = stopDistance.multiply(BigDecimal.valueOf(request.quantity()));
         if (request.quantity() > riskLimitedQuantity) reasons.add("Requested quantity exceeds configured per-trade risk limit");
         if (request.quantity() > capitalLimitedQuantity) reasons.add("Requested quantity exceeds configured capital allocation");
-        if (stopDistance.signum() > 0 && request.quantity() <= maximumQuantity && reasons.isEmpty()) {
+        if (includePaperJournalGuards && stopDistance.signum() > 0 && request.quantity() <= maximumQuantity && reasons.isEmpty()) {
             reasons.addAll(paperTrades.intentBlockReasons(request.symbol(), request.entryPrice(), request.stopPrice(), request.quantity()));
         }
         boolean allowed = reasons.isEmpty();

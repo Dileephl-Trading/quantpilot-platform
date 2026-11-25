@@ -82,6 +82,22 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
         return List.copyOf(cancelled);
     }
 
+    @Override public List<BrokerPosition> positions() {
+        requireRoutingEnabled();
+        JsonNode data = send("GET", "/portfolio/positions", "");
+        JsonNode net = data.path("net");
+        if (!net.isArray()) return List.of();
+        List<BrokerPosition> positions = new ArrayList<>();
+        for (JsonNode row : net) {
+            String symbol = row.path("tradingsymbol").asText("");
+            long quantity = row.path("quantity").asLong(0);
+            if (symbol.isBlank() || quantity == 0) continue;
+            positions.add(new BrokerPosition(symbol, row.path("exchange").asText("NSE"),
+                    row.path("product").asText("MIS"), quantity, decimalOrNull(row.path("average_price"))));
+        }
+        return List.copyOf(positions);
+    }
+
     @Override public List<BrokerOrderResponse> squareOffPositions() {
         requireRoutingEnabled();
         JsonNode data = send("GET", "/portfolio/positions", "");
@@ -136,6 +152,10 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
         try {
             HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             JsonNode root = mapper.readTree(response.body());
+            String message = root.path("message").asText("");
+            if (response.statusCode() == 403 && message.toLowerCase().matches(".*(token|session|authentication|authori[sz]).*")) {
+                authService.markInvalid();
+            }
             if (response.statusCode() < 200 || response.statusCode() >= 300 || !"success".equalsIgnoreCase(root.path("status").asText())) {
                 throw new IllegalStateException("Kite order API failed with HTTP " + response.statusCode() + ": " + root.path("message").asText("unknown error"));
             }
@@ -150,7 +170,10 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
         add(fields, "transaction_type", r.side().name()); add(fields, "order_type", defaultValue(r.orderType(), "LIMIT"));
         add(fields, "quantity", Long.toString(r.quantity())); add(fields, "product", defaultValue(r.product(), "MIS"));
         add(fields, "validity", defaultValue(r.validity(), "DAY"));
-        if (r.price() != null) add(fields, "price", r.price().toPlainString());
+        String orderType = defaultValue(r.orderType(), "LIMIT").toUpperCase();
+        if (("LIMIT".equals(orderType) || "SL".equals(orderType)) && r.price() != null) {
+            add(fields, "price", r.price().toPlainString());
+        }
         if (r.triggerPrice() != null) add(fields, "trigger_price", r.triggerPrice().toPlainString());
         return String.join("&", fields);
     }
