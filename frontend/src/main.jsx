@@ -100,6 +100,7 @@ function App() {
   const [openGroups, setOpenGroups] = useState({ trading: true, records: true, market: true, configuration: true })
   const [authState, setAuthState] = useState('checking')
   const [authError, setAuthError] = useState('')
+  const [signingOut, setSigningOut] = useState(false)
 
   useEffect(() => {
     function handleSessionExpired() {
@@ -242,6 +243,25 @@ function App() {
   }
 
   useEffect(() => { if (active === 'execution' && authState === 'authenticated') refreshExecution() }, [active, authState])
+  async function logout() {
+    setSigningOut(true)
+    try {
+      const response = await apiFetch('/api/v1/auth/logout', { method: 'POST', suppressAuthRedirect: true })
+      if (!response.ok && response.status !== 401) throw new Error('The server did not confirm sign out')
+    } catch (error) {
+      setNotice({ tone: 'error', text: error.message + '. Local session cleared.' })
+    } finally {
+      setProfile(null)
+      setDraft(null)
+      setKiteStatus(null)
+      setMarketSession(null)
+      setAuthError('')
+      setActive('overview')
+      setAuthState('unauthenticated')
+      setSigningOut(false)
+    }
+  }
+
 
   if (authState === 'checking') return <ThemeProvider theme={marketTheme}><Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: '#edf2f8' }}><Stack alignItems="center" gap={2}><CircularProgress size={34} /><Typography color="text.secondary">Checking secure session…</Typography></Stack></Box></ThemeProvider>
   if (authState === 'unauthenticated') return <LoginPage message={authError} onSuccess={() => { setAuthError(''); setAuthState('authenticated'); loadProfile(); loadKiteStatus() }} />
@@ -271,6 +291,7 @@ function App() {
           <MenuItem active={active === 'settings'} onClick={() => setActive('settings')} icon="⚙">Trading profile</MenuItem>
         </MenuGroup>
       </nav>
+        <button className="nav-link logout-link" type="button" onClick={logout} disabled={signingOut}><span>⇥</span> {signingOut ? 'Signing out…' : 'Sign out'}</button>
       <div className="sidebar-footer">
         <div className="paper-chip"><span className="dot" /> {profile?.mode === 'LIVE' ? 'LIVE MODE' : profile?.mode === 'DRY_RUN' ? 'DRY-RUN MODE' : 'PAPER MODE'}</div>
         <p>Trading session and controls are server-managed.</p>
