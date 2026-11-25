@@ -3,6 +3,7 @@ package com.dileephl.marketscanner.live;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Column;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -15,6 +16,8 @@ public class WatchlistEntryEntity {
     private long instrumentToken;
     private String symbol;
     private boolean enabled;
+    @Column(name = "auto_managed", nullable = false)
+    private boolean autoManaged;
     private OffsetDateTime addedAt;
 
     protected WatchlistEntryEntity() { }
@@ -27,7 +30,10 @@ public class WatchlistEntryEntity {
     public long getInstrumentToken() { return instrumentToken; }
     public String getSymbol() { return symbol; }
     public boolean isEnabled() { return enabled; }
+    public boolean isAutoManaged() { return autoManaged; }
     public OffsetDateTime getAddedAt() { return addedAt; }
     public void disable() { enabled = false; }
     public void enable() { enabled = true; addedAt = OffsetDateTime.now(); }
+    public void markAutoManaged() { autoManaged = true; }
+    public void markUserManaged() { autoManaged = false; }
 }

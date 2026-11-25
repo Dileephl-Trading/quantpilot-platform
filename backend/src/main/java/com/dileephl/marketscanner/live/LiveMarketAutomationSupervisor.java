@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
 
 /**
  * Server-owned monitor lifecycle.  The browser is only an observer: expiring
@@ -25,6 +26,8 @@ public class LiveMarketAutomationSupervisor {
     private final AuditTrailService audit;
     private String lastFailure;
     private LocalDate lastStartedDate;
+    private LocalDate defaultsPreparedDate;
+    private LocalDate defaultsClearedDate;
 
     public LiveMarketAutomationSupervisor(LiveMarketService liveMarket, KiteConnectProperties kite,
                                           KiteAuthService auth, MarketSessionService sessions,
@@ -43,10 +46,18 @@ public class LiveMarketAutomationSupervisor {
 
         LiveFeedStatus status = liveMarket.status();
         if (!sessions.isOpenNow()) {
+            int disabled = liveMarket.endSession();
+            if (!today().equals(defaultsClearedDate)) {
+                defaultsClearedDate = today();
+                defaultsPreparedDate = null;
+            }
             if (!"STOPPED".equalsIgnoreCase(status.state())) {
-                liveMarket.stopForSessionBoundary();
                 audit.record("LIVE_MONITOR_STOPPED_SESSION_BOUNDARY", "LIVE_MONITOR", "GLOBAL",
                         sessions.status().reason());
+            }
+            if (disabled > 0) {
+                audit.record("LIVE_DEFAULT_WATCHLIST_CLEARED", "LIVE_MONITOR", "GLOBAL",
+                        "Disabled " + disabled + " automatically managed banking symbols for the next trading session");
             }
             return;
         }
@@ -57,6 +68,22 @@ public class LiveMarketAutomationSupervisor {
                         "Daily Kite session is missing, expired, or invalid");
             }
             return;
+        }
+        if (!today().equals(defaultsPreparedDate)) {
+            try {
+                List<LiveWatchlistView> prepared = liveMarket.ensureDefaultBankNifty();
+                defaultsPreparedDate = today();
+                defaultsClearedDate = null;
+                audit.record("LIVE_DEFAULT_WATCHLIST_PREPARED", "LIVE_MONITOR", "GLOBAL",
+                        "Prepared the default banking watchlist with " + prepared.size() + " enabled symbols");
+            } catch (RuntimeException error) {
+                String reason = error.getMessage() == null ? "unknown default watchlist failure" : error.getMessage();
+                if (!reason.equals(lastFailure)) {
+                    lastFailure = reason;
+                    audit.record("LIVE_DEFAULT_WATCHLIST_BLOCKED", "LIVE_MONITOR", "GLOBAL", reason);
+                }
+                return;
+            }
         }
         if (!liveMarket.watchlist().isEmpty()
                 && "STOPPED".equalsIgnoreCase(status.state())) {

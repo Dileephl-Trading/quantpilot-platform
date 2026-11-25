@@ -19,6 +19,7 @@ public class KiteConnectProperties {
     private String sessionEncryptionKey;
     private int staleTickSeconds = 20;
     private int reconnectDelaySeconds = 3;
+    private int maxLiveInstruments = 50;
 
     public boolean isMarketDataEnabled() { return marketDataEnabled; }
     public void setMarketDataEnabled(boolean marketDataEnabled) { this.marketDataEnabled = marketDataEnabled; }
@@ -42,6 +43,8 @@ public class KiteConnectProperties {
     public void setStaleTickSeconds(int value) { staleTickSeconds = value; }
     public int getReconnectDelaySeconds() { return reconnectDelaySeconds; }
     public void setReconnectDelaySeconds(int value) { reconnectDelaySeconds = value; }
+    public int getMaxLiveInstruments() { return maxLiveInstruments; }
+    public void setMaxLiveInstruments(int value) { maxLiveInstruments = value > 0 ? value : 50; }
 
     public boolean hasApiKey() { return populated(apiKey); }
     public boolean hasApiSecret() { return populated(apiSecret); }
