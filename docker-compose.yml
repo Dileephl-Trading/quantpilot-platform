@@ -17,6 +17,8 @@ services:
   backend:
     build:
       context: ./backend
+    env_file:
+      - .env
     environment:
       DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       DATABASE_USERNAME: ${POSTGRES_USER}

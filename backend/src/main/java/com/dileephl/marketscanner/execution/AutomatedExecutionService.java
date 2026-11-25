@@ -2,6 +2,7 @@ package com.dileephl.marketscanner.execution;
 
 import com.dileephl.marketscanner.audit.AuditTrailService;
 import com.dileephl.marketscanner.config.AutomatedExecutionProperties;
+import com.dileephl.marketscanner.config.LiveExecutionProperties;
 import com.dileephl.marketscanner.config.MarketSessionService;
 import com.dileephl.marketscanner.config.TradingMode;
 import com.dileephl.marketscanner.config.TradingProfile;
@@ -9,10 +10,13 @@ import com.dileephl.marketscanner.config.TradingProfileService;
 import com.dileephl.marketscanner.integration.marketdata.CandleInterval;
 import com.dileephl.marketscanner.integration.zerodha.KiteAuthService;
 import com.dileephl.marketscanner.integration.zerodha.KiteConnectProperties;
+import com.dileephl.marketscanner.marketdata.MarketInstrumentEntity;
+import com.dileephl.marketscanner.marketdata.MarketInstrumentRepository;
 import com.dileephl.marketscanner.service.SignalEngine;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -38,24 +42,38 @@ public class AutomatedExecutionService {
     private final ExecutionRequestRepository requests;
     private final AutomationSafetyStateRepository safetyStates;
     private final AuditTrailService audit;
+    private final LiveExecutionPreflightService preflight;
+    private final LiveOrderRiskService liveRisk;
+    private final LiveExecutionProperties liveExecutionProperties;
+    private final MarketInstrumentRepository instruments;
 
     public AutomatedExecutionService(AutomatedExecutionProperties properties, TradingProfileService profiles,
                                      MarketSessionService sessions, KiteConnectProperties kiteProperties,
                                      KiteAuthService auth, SafetyService safety, ExecutionPreviewService previews,
                                      BrokerOrderExecutionService execution, ExecutionRequestRepository requests,
-                                     AutomationSafetyStateRepository safetyStates, AuditTrailService audit) {
+                                     AutomationSafetyStateRepository safetyStates, AuditTrailService audit,
+                                     LiveExecutionPreflightService preflight, LiveOrderRiskService liveRisk,
+                                     LiveExecutionProperties liveExecutionProperties,
+                                     MarketInstrumentRepository instruments) {
         properties.validate();
         this.properties = properties; this.profiles = profiles; this.sessions = sessions;
         this.kiteProperties = kiteProperties; this.auth = auth; this.safety = safety;
         this.previews = previews; this.execution = execution; this.requests = requests;
-        this.safetyStates = safetyStates; this.audit = audit;
+        this.safetyStates = safetyStates; this.audit = audit; this.preflight = preflight; this.liveRisk = liveRisk;
+        this.liveExecutionProperties = liveExecutionProperties;
+        this.instruments = instruments;
     }
 
     public AutomatedStatus status() {
         TradingProfile profile = profiles.current();
-        return new AutomatedStatus(properties.isEnabled(), profile.mode().name(), kiteProperties.isOrderRoutingEnabled(),
+        return new AutomatedStatus(properties.isEnabled(), liveExecutionEnabled(), profile.mode().name(),
+                kiteProperties.isMarketDataEnabled(), kiteProperties.isOrderRoutingEnabled(),
                 auth.hasCurrentAccessToken(), safety.state().killSwitchEnabled(), properties.getMaxSignalAgeSeconds(),
                 properties.getMaxOrderQuantity(), properties.getOrderType(), currentSafetyState().uncertainBrokerState());
+    }
+
+    private boolean liveExecutionEnabled() {
+        return liveExecutionProperties.isEnabled();
     }
 
     public AutomatedStatus recoverAfterReconciliation() {
@@ -82,6 +100,11 @@ public class AutomatedExecutionService {
         boolean brokerAttempted = false;
         try {
             if (currentSafetyState().uncertainBrokerState()) throw new IllegalStateException("Previous broker result is uncertain; manual reconciliation is required");
+            LiveExecutionPreflightService.Preflight preflightResult = preflight.run();
+            if (!preflightResult.ready()) {
+                throw new IllegalStateException("Live execution preflight failed: " + preflightResult.checks().stream()
+                        .filter(check -> !check.passed()).map(LiveExecutionPreflightService.Check::detail).reduce((a, b) -> a + "; " + b).orElse("unknown"));
+            }
             TradingProfile profile = profiles.current();
             OffsetDateTime now = OffsetDateTime.now(INDIA);
             require(profile, sessions, now, kiteProperties, auth, safety, candle, interval);
@@ -95,20 +118,15 @@ public class AutomatedExecutionService {
                     || (side == OrderSide.SELL && stop.compareTo(entry) <= 0)) {
                 throw new IllegalStateException("Signal invalidation must be below entry for BUY and above entry for SELL");
             }
-            if (requests.existsBySymbolAndStatusIn(normalizedSymbol, OPEN_STATUSES)) {
-                throw new IllegalStateException("An active order already exists for " + normalizedSymbol);
+            MarketInstrumentEntity instrument = instruments.findByProviderAndInstrumentToken(provider, instrumentToken)
+                    .orElseThrow(() -> new IllegalStateException("Signal instrument is no longer present in the synced NSE instrument list"));
+            entry = alignToTick(entry, instrument.getTickSize(), side == OrderSide.BUY ? RoundingMode.DOWN : RoundingMode.UP);
+            stop = alignToTick(stop, instrument.getTickSize(), side == OrderSide.BUY ? RoundingMode.DOWN : RoundingMode.UP);
+            if ((side == OrderSide.BUY && stop.compareTo(entry) >= 0)
+                    || (side == OrderSide.SELL && stop.compareTo(entry) <= 0)) {
+                throw new IllegalStateException("Signal entry and invalidation collapse to the same exchange tick");
             }
-            if (requests.countByStatusIn(OPEN_STATUSES) >= profile.maxOpenPositions()) {
-                throw new IllegalStateException("Maximum open positions has been reached");
-            }
-            requests.findTopBySymbolOrderByCreatedAtDesc(normalizedSymbol).ifPresent(previous -> {
-                long elapsed = Math.max(0, Duration.between(previous.createdAt(), now).getSeconds());
-                if (elapsed < profile.cooldownSeconds()) {
-                    throw new IllegalStateException("Cooldown is active for " + normalizedSymbol);
-                }
-            });
-
-            OrderPreview preview = previews.preview(new ExecutionPreviewService.OrderRequest(normalizedSymbol, side, entry, stop, 1));
+            OrderPreview preview = previews.previewLive(new ExecutionPreviewService.OrderRequest(normalizedSymbol, side, entry, stop, 1));
             if (!preview.allowed() || preview.maxAllowedQuantity() <= 0) {
                 throw new IllegalStateException("Signal failed risk validation: " + String.join("; ", preview.reasons()));
             }
@@ -116,8 +134,15 @@ public class AutomatedExecutionService {
             if (quantity <= 0) throw new IllegalStateException("Calculated automated quantity is zero");
 
             BrokerOrderRequest request = new BrokerOrderRequest(normalizedSymbol, side, quantity,
-                    properties.getOrderType(), "MARKET".equals(properties.getOrderType()) ? null : entry,
+                    properties.getOrderType(), entry,
                     null, profile.product(), profile.exchange(), "DAY", stop);
+            LiveOrderRiskService.RiskCheck liveCheck = liveRisk.verify(request, now);
+            if (!liveCheck.allowed()) {
+                throw new IllegalStateException("Second live verification failed: " + String.join("; ", liveCheck.reasons()));
+            }
+            audit.record("AUTOMATED_SIGNAL_VERIFIED", "AUTOMATION_SIGNAL", signalKey,
+                    "symbol=" + normalizedSymbol + ", side=" + side + ", risk=" + liveCheck.proposedRisk()
+                            + ", tradesToday=" + liveCheck.tradesToday() + ", occupiedSlots=" + liveCheck.occupiedPositionSlots());
             brokerAttempted = true;
             execution.place(signalKey, request);
             audit.record("AUTOMATED_ORDER_SUBMITTED", "AUTOMATION_SIGNAL", signalKey,
@@ -152,11 +177,17 @@ public class AutomatedExecutionService {
 
     private String safe(String message) { return message == null || message.isBlank() ? "unknown safety rejection" : message; }
 
+    private BigDecimal alignToTick(BigDecimal value, BigDecimal tickSize, RoundingMode roundingMode) {
+        if (tickSize == null || tickSize.signum() <= 0) return value;
+        return value.divide(tickSize, 0, roundingMode).multiply(tickSize).stripTrailingZeros();
+    }
+
     private AutomationSafetyStateEntity currentSafetyState() {
         return safetyStates.findById(1).orElseGet(() -> safetyStates.save(AutomationSafetyStateEntity.initial()));
     }
 
-    public record AutomatedStatus(boolean enabled, String profileMode, boolean routingEnabled,
+    public record AutomatedStatus(boolean enabled, boolean liveExecutionEnabled, String profileMode,
+                                  boolean marketDataEnabled, boolean routingEnabled,
                                   boolean sessionConnected, boolean killSwitchEnabled,
                                   int maxSignalAgeSeconds, long maxOrderQuantity, String orderType,
                                   boolean uncertainBrokerState) { }

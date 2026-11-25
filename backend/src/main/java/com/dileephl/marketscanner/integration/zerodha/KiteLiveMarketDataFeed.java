@@ -68,7 +68,10 @@ public class KiteLiveMarketDataFeed implements LiveMarketDataFeed {
     public synchronized void start(Set<Long> instrumentTokens, Consumer<LiveMarketTick> tickConsumer) {
         if (!properties.isMarketDataEnabled()) throw new IllegalStateException("Kite market data is disabled by configuration");
         if (instrumentTokens == null || instrumentTokens.isEmpty()) throw new IllegalArgumentException("Add at least one enabled symbol to the live watchlist");
-        if (instrumentTokens.size() > 50) throw new IllegalArgumentException("The local live watchlist is limited to 50 symbols");
+        int capacity = properties.getMaxLiveInstruments();
+        if (instrumentTokens.size() > capacity) {
+            throw new IllegalArgumentException("The live watchlist is limited to " + capacity + " symbols");
+        }
         stop(); activeTokens = Set.copyOf(instrumentTokens); activeConsumer = tickConsumer;
         subscribedInstruments = activeTokens.size(); latestPrices.clear(); lastError = null;
         openSocket(connectionGeneration.incrementAndGet());
@@ -85,7 +88,7 @@ public class KiteLiveMarketDataFeed implements LiveMarketDataFeed {
 
     @Override
     public LiveFeedStatus status() {
-        return new LiveFeedStatus(providerName(), state, subscribedInstruments, connectedAt, lastTickAt,
+        return new LiveFeedStatus(providerName(), state, subscribedInstruments, properties.getMaxLiveInstruments(), connectedAt, lastTickAt,
                 Collections.unmodifiableMap(new HashMap<>(latestPrices)), lastError);
     }
 
@@ -142,6 +145,7 @@ public class KiteLiveMarketDataFeed implements LiveMarketDataFeed {
             if (generation == connectionGeneration.get() && message.toString().contains("\"type\":\"error\"")) {
                 String text = message.toString().toLowerCase();
                 if (text.contains("token") || text.contains("expired") || text.contains("invalid")) {
+                    authService.markInvalid();
                     KiteLiveMarketDataFeed.this.stop();
                     lastError = "Kite session expired or is invalid; connect Kite again for today's session";
                     webSocket.abort();

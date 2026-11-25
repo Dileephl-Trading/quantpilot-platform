@@ -8,6 +8,7 @@ import com.dileephl.marketscanner.integration.marketdata.LiveFeedStatus;
 import com.dileephl.marketscanner.integration.marketdata.LiveMarketDataFeed;
 import com.dileephl.marketscanner.integration.marketdata.LiveMarketTick;
 import com.dileephl.marketscanner.integration.marketdata.MarketDataProvider;
+import com.dileephl.marketscanner.integration.zerodha.KiteConnectProperties;
 import com.dileephl.marketscanner.config.MarketSessionService;
 import com.dileephl.marketscanner.config.ScannerProperties;
 import com.dileephl.marketscanner.execution.AutomatedExecutionService;
@@ -33,6 +34,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import jakarta.annotation.PreDestroy;
 
 @Service
 public class LiveMarketService {
@@ -48,15 +52,23 @@ public class LiveMarketService {
     private final FiveMinuteCandleAggregator aggregator;
     private final ScannerProperties scannerProperties;
     private final AutomatedExecutionService automatedExecution;
+    private final KiteConnectProperties kiteProperties;
     private static final int MAX_PAGE_SIZE = 50;
     private final Map<Long, String> symbolsByToken = new HashMap<>();
     private final Map<String, List<Candle>> candlesBySymbol = new HashMap<>();
+    private LocalDate manualStopDate;
+    private final ExecutorService executionExecutor = Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "quantpilot-live-execution");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public LiveMarketService(LiveMarketDataFeed liveFeed, MarketDataProvider marketDataProvider,
                              MarketInstrumentRepository instrumentRepository, WatchlistEntryRepository watchlistRepository,
                              LiveSignalRepository signalRepository, LiveCandleRepository candleRepository,
                              MarketSessionService marketSessionService, SignalEngine signalEngine,
-                             ScannerProperties scannerProperties, AutomatedExecutionService automatedExecution) {
+                             ScannerProperties scannerProperties, AutomatedExecutionService automatedExecution,
+                             KiteConnectProperties kiteProperties) {
         this.liveFeed = liveFeed; this.marketDataProvider = marketDataProvider;
         this.instrumentRepository = instrumentRepository; this.watchlistRepository = watchlistRepository;
         this.signalRepository = signalRepository; this.candleRepository = candleRepository;
@@ -64,6 +76,7 @@ public class LiveMarketService {
         this.signalEngine = signalEngine;
         this.scannerProperties = scannerProperties;
         this.automatedExecution = automatedExecution;
+        this.kiteProperties = kiteProperties;
         this.aggregator = new FiveMinuteCandleAggregator(scannerProperties.getCandleInterval().candleDuration());
     }
 
@@ -73,9 +86,45 @@ public class LiveMarketService {
         MarketInstrumentEntity instrument = instrumentRepository.findByProviderAndInstrumentToken(provider, instrumentToken)
                 .orElseThrow(() -> new IllegalArgumentException("Select a symbol from the synced NSE instrument list"));
         WatchlistEntryEntity entry = watchlistRepository.findByProviderAndInstrumentToken(provider, instrumentToken)
-                .orElseGet(() -> new WatchlistEntryEntity(provider, instrumentToken, instrument.getTradingsymbol()));
+                .orElseGet(() -> {
+                    assertCapacityForNewEntry(provider);
+                    return new WatchlistEntryEntity(provider, instrumentToken, instrument.getTradingsymbol());
+                });
         entry.enable();
+        if (!entry.isAutoManaged()) entry.markUserManaged();
         return LiveWatchlistView.from(watchlistRepository.save(entry));
+    }
+
+    /**
+     * Ensures the default banking/Bank-Nifty watchlist is present for the
+     * current trading session. These rows are session-managed and are enabled
+     * at the start of each session; all active rows expire at the boundary.
+     */
+    @Transactional
+    public List<LiveWatchlistView> ensureDefaultBankNifty() {
+        String provider = liveFeed.providerName();
+        expirePreviousDayUserEntries(provider);
+        Set<String> defaults = SectorClassifier.symbols("BANKING");
+        List<MarketInstrumentEntity> instruments = instrumentRepository
+                .findByProviderAndExchangeOrderByTradingsymbolAsc(provider, "NSE");
+        int matched = 0;
+        for (MarketInstrumentEntity instrument : instruments) {
+            if (!defaults.contains(instrument.getTradingsymbol())) continue;
+            matched++;
+            WatchlistEntryEntity entry = watchlistRepository
+                    .findByProviderAndInstrumentToken(provider, instrument.getInstrumentToken())
+                    .orElseGet(() -> {
+                        assertCapacityForNewEntry(provider);
+                        return new WatchlistEntryEntity(provider, instrument.getInstrumentToken(), instrument.getTradingsymbol());
+                    });
+            entry.markAutoManaged();
+            entry.enable();
+            watchlistRepository.save(entry);
+        }
+        if (matched == 0) {
+            throw new IllegalStateException("Sync NSE cash symbols before the default Bank Nifty watchlist can be prepared");
+        }
+        return watchlist();
     }
 
     @Transactional
@@ -108,27 +157,83 @@ public class LiveMarketService {
     }
 
     private List<WatchlistEntryEntity> currentSessionEntries() {
-        LocalDate today = OffsetDateTime.now(INDIA_OFFSET).toLocalDate();
-        return watchlistRepository.findByProviderAndEnabledTrueOrderBySymbolAsc(liveFeed.providerName()).stream()
-                .filter(entry -> entry.getAddedAt() != null
-                        && entry.getAddedAt().toInstant().atZone(INDIA_OFFSET).toLocalDate().equals(today))
-                .toList();
+        // The enabled watchlist is the current-session configuration. All rows
+        // expire at the session boundary; the supervisor re-enables only the
+        // default banking rows on the next valid session. Current-session
+        // signal/candle queries are independently bounded by sessionStart(),
+        // so yesterday's observations never leak into today's monitor view.
+        return watchlistRepository.findByProviderAndEnabledTrueOrderBySymbolAsc(liveFeed.providerName());
     }
 
     @Scheduled(fixedDelay = 30000)
     public synchronized void stopAfterSession() {
-        if ("CONNECTED".equalsIgnoreCase(liveFeed.status().state()) && !marketSessionService.isOpenNow()) {
-            liveFeed.stop();
-            symbolsByToken.clear();
-            candlesBySymbol.clear();
-        }
+        if (!marketSessionService.isOpenNow()) endSession();
     }
 
     public synchronized LiveFeedStatus start() {
+        manualStopDate = null;
+        return startInternal();
+    }
+
+    /** Called by the server-side supervisor; browser authentication is not involved. */
+    public synchronized LiveFeedStatus startAutomatically() {
+        if (manualStopDate != null && manualStopDate.equals(today())) return liveFeed.status();
+        return startInternal();
+    }
+
+    /** A manual stop suppresses same-day automatic restarts, but not the next session. */
+    public synchronized LiveFeedStatus stop() {
+        manualStopDate = today();
+        stopFeed();
+        return liveFeed.status();
+    }
+
+    /** Used for session close or a missing/expired Kite token. */
+    public synchronized void stopForSessionBoundary() {
+        stopFeed();
+    }
+
+    /** Ends the trading session and expires every active watchlist row. */
+    @Transactional
+    public synchronized int endSession() {
+        stopFeed();
+        int disabled = 0;
+        for (WatchlistEntryEntity entry : watchlistRepository
+                .findByProviderAndEnabledTrueOrderBySymbolAsc(liveFeed.providerName())) {
+            entry.disable();
+            watchlistRepository.save(entry);
+            disabled++;
+        }
+        return disabled;
+    }
+
+    private int expirePreviousDayUserEntries(String provider) {
+        OffsetDateTime startOfToday = today().atStartOfDay().atOffset(INDIA_OFFSET);
+        int expired = 0;
+        for (WatchlistEntryEntity entry : watchlistRepository
+                .findByProviderAndEnabledTrueAndAutoManagedFalseAndAddedAtBefore(provider, startOfToday)) {
+            entry.disable();
+            watchlistRepository.save(entry);
+            expired++;
+        }
+        return expired;
+    }
+
+    private void assertCapacityForNewEntry(String provider) {
+        long enabled = watchlistRepository.findByProviderAndEnabledTrueOrderBySymbolAsc(provider).size();
+        int capacity = kiteProperties.getMaxLiveInstruments();
+        if (enabled >= capacity) {
+            throw new IllegalStateException("The live watchlist is full (maximum " + capacity + " symbols)");
+        }
+    }
+
+    private synchronized LiveFeedStatus startInternal() {
         if (!marketSessionService.isOpenNow()) {
             throw new IllegalStateException("Live monitoring is available only during the NSE cash session: "
                     + marketSessionService.status().reason());
         }
+        String state = liveFeed.status().state();
+        if (!"STOPPED".equalsIgnoreCase(state)) return liveFeed.status();
         List<WatchlistEntryEntity> entries = currentSessionEntries();
         if (entries.isEmpty()) throw new IllegalStateException("Add at least one synced symbol to the live watchlist first");
         aggregator.reset();
@@ -150,7 +255,20 @@ public class LiveMarketService {
         return liveFeed.status();
     }
 
-    public synchronized LiveFeedStatus stop() { liveFeed.stop(); return liveFeed.status(); }
+    private void stopFeed() {
+        liveFeed.stop();
+        symbolsByToken.clear();
+        candlesBySymbol.clear();
+        aggregator.reset();
+    }
+
+    private LocalDate today() { return OffsetDateTime.now(INDIA_OFFSET).toLocalDate(); }
+
+    @PreDestroy
+    void shutdownExecutionExecutor() {
+        executionExecutor.shutdownNow();
+    }
+
     public LiveFeedStatus status() { return liveFeed.status(); }
 
     @Transactional(readOnly = true)
@@ -249,8 +367,11 @@ public class LiveMarketService {
             signalRepository.save(new LiveSignalEntity(liveFeed.providerName(), instrumentToken, symbol, candle.timestamp(),
                     signal.type().name(), signal.referencePrice(), signal.vwap(), signal.invalidationReference(),
                     signal.openingRangeHigh(), signal.openingRangeLow(), signal.averageVolume(), signal.volumeThreshold(), reasons));
-            automatedExecution.onCompletedSignal(liveFeed.providerName(), instrumentToken, symbol, candle, signal,
-                    scannerProperties.getCandleInterval());
+            // Never block Kite's WebSocket callback while the broker HTTP API
+            // and its second risk layer are running. Candle ingestion remains
+            // ordered; order submission is serialized on this worker.
+            executionExecutor.submit(() -> automatedExecution.onCompletedSignal(liveFeed.providerName(), instrumentToken,
+                    symbol, candle, signal, scannerProperties.getCandleInterval()));
         }
     }
 }

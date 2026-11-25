@@ -25,7 +25,7 @@ Otherwise it returns `NO_TRADE`. That is a valid and often preferred outcome.
 - This is research software, not investment advice.
 - Any signal is a hypothesis, not a prediction or order instruction.
 - Use paper trading first. Define position size and a hard stop before taking any real trade.
-- Broker credentials are used only for the optional read-only Kite market-data connection; automatic trading, averaging-down logic, and “recovery” sizing are not included.
+- Broker credentials are used for the optional Kite market-data connection and, only when every explicit live gate is enabled, the controlled order adapter; automatic averaging-down or “recovery” sizing is not included.
 
 ## Production baseline
 
@@ -97,7 +97,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173`. The interface exposes the local paper-trading profile, order-risk preview and, when Kite has been configured, the read-only market-data workspace. The Phase 4 order adapter is present behind explicit gates, but live execution remains disabled by default.
+Open `http://localhost:5173`. The interface exposes the local trading profile, order-risk preview, controlled execution console and, when Kite has been configured, the market-data workspace. Live execution remains disabled by default and is only armed through environment configuration plus the LIVE profile.
 
 ## Configurable paper-trading foundation
 
@@ -161,7 +161,7 @@ Set this exact **Redirect URL** in the Kite Developer Console when you create or
 http://127.0.0.1:8080/api/v1/integrations/zerodha/callback
 ```
 
-The application implements the login URL, server-side request-token exchange, instrument-master sync, symbol search, and historical-candle contract. Open the **Market data** dashboard page, select **Connect Kite**, authenticate with Zerodha, and return to the local callback page. The access token exists only in application memory for the current run; it is never returned by an API, displayed in the UI, stored in PostgreSQL, or placed in frontend code. Zerodha access tokens expire daily, so repeat the login each trading day and after an application restart. Broker order routing remains disabled unless all Phase 4 gates are deliberately enabled.
+The application implements the login URL, server-side request-token exchange, instrument-master sync, symbol search, and historical-candle contract. Open the **Market data** dashboard page, select **Connect Kite**, authenticate with Zerodha, and return to the local callback page. The access token is encrypted at rest with `KITE_SESSION_ENCRYPTION_KEY`; it is never returned by an API, displayed in the UI, or placed in frontend code. Zerodha access tokens expire daily, so repeat the login each trading day. Broker order routing remains disabled unless all live gates are deliberately enabled.
 
 ### Read-only market-data verification
 
@@ -188,9 +188,9 @@ The verification endpoints are read-only:
 
 ### Live watchlist alerts
 
-After historical verification works, you may add selected symbols to the small local live watchlist and select **Start monitor**. The monitor uses Kite's read-only WebSocket feed, builds only *completed* five-minute candles, and then evaluates the same opening-range/VWAP/volume rules. A `WATCH_LONG` or `WATCH_SHORT` is an alert recorded locally; it is never an order and it does not guarantee a move.
+After historical verification works, the backend supervisor prepares the default local banking/Bank-Nifty group at the start of each valid NSE session, then includes any additional user-selected symbols. When `KITE_MARKET_DATA_ENABLED=true`, it starts the monitor automatically as soon as today's Kite session is valid. The monitor uses Kite's read-only WebSocket feed, builds only *completed* five-minute candles, and then evaluates the same opening-range/VWAP/volume rules. A `WATCH_LONG` or `WATCH_SHORT` is first recorded locally and then passed through a separate live-execution verification layer; it is not an order unless every live gate passes.
 
-Keep the watchlist small (maximum 50 symbols). The feed reports connection, stale, and reconnecting states and will attempt reconnection while the current session remains valid. After an application restart, complete the daily Kite login again and explicitly start the monitor.
+The default banking/Bank-Nifty rows are session-managed: all active rows—including user-added rows—are disabled at the market boundary. The default rows are re-enabled on the next trading day; user-added rows must be selected again for that day. A restart after the previous close also expires stale user rows before preparing the new session. The live subscription capacity is configurable with `KITE_MAX_LIVE_INSTRUMENTS` and defaults to 50 total symbols. The feed reports connection, stale, and reconnecting states and will attempt reconnection while the current session remains valid. It stops automatically at the configured market boundary, on weekends/holidays, or when the Kite session expires. A manual stop suppresses same-day automatic restarts. After an application restart, complete the daily Kite login again; the server resumes automatically when the session and market window are valid.
 
 The live-alert endpoints are read-only:
 
@@ -200,7 +200,7 @@ The live-alert endpoints are read-only:
 | `GET /api/v1/live-market/watchlist` | View enabled watchlist entries |
 | `DELETE /api/v1/live-market/watchlist/{instrumentToken}` | Disable a watchlist symbol |
 | `POST /api/v1/live-market/watchlist/groups/{group}` | Add a predefined group such as `bank-nifty`, `it`, or `pharma` |
-| `POST /api/v1/live-market/start` | Start the read-only WebSocket monitor |
+| `POST /api/v1/live-market/start` | Manually start/restart the WebSocket monitor |
 | `POST /api/v1/live-market/stop` | Stop the monitor without affecting any broker account |
 | `GET /api/v1/live-market/status` | Inspect the connection state and last received tick |
 | `GET /api/v1/live-market/signals?symbol=SBIN&type=WATCH_LONG&limit=50` | Filter locally recorded completed-candle alerts |
@@ -266,11 +266,13 @@ The live monitor can hand completed `WATCH_LONG`/`WATCH_SHORT` signals to the sa
 AUTOMATED_EXECUTION_ENABLED=false
 ```
 
-When deliberately enabled, automation still requires LIVE profile mode, `KITE_ORDER_ROUTING_ENABLED=true`, a current Kite session, an open NSE session, a fresh completed candle, a disabled kill switch, valid entry/invalidation prices, available risk/capital, cooldown availability, no active order for the symbol, and an available position slot. The default automated quantity cap is one share. Every rejection is written to the audit trail, and no automatic order is sent when any gate fails.
+When deliberately enabled, automation still requires all of the following: `LIVE_EXECUTION_ENABLED=true`, `AUTOMATED_EXECUTION_ENABLED=true`, `KITE_MARKET_DATA_ENABLED=true`, `KITE_ORDER_ROUTING_ENABLED=true`, LIVE profile mode, a current Kite session, a valid NSE cash-session/new-entry window, a fresh completed candle, a disabled kill switch, valid entry/invalidation prices, available risk/capital, a daily trade/risk budget, cooldown availability, no active order or broker position for the symbol, and an available position slot. The default automated quantity cap is one share. The signal is checked once by the live preflight and a second time against current broker positions and live reservations immediately before submission. Every rejection is written to the audit trail, and no automatic order is sent when any gate fails.
+
+After an entry receives a broker-confirmed fill, the reconciliation worker submits an `SL-M` protective order at the signal invalidation price and adjusts its quantity when a partial fill grows. If the protective order cannot be created or reconciled, the system attempts a broker square-off, enables the kill switch, and enters the uncertain-state circuit breaker. The configured 14:55 pending-order cancellation, 15:00 square-off, and 15:03 hard-flat deadline continue to run on the backend without a browser session.
 
 If a broker call may have succeeded but the local persistence step fails, automation enters an uncertain-state circuit breaker and stops issuing further automatic orders until the application is restarted and the broker order list is manually reconciled.
 
-Inspect the current gates with `GET /api/v1/automation/status`. This release does not enable automatic routing by default and does not provide a remote toggle for it; changing the local environment and restarting is intentional.
+Inspect the current gates with `GET /api/v1/automation/status` and `GET /api/v1/automation/preflight`. This release does not enable automatic routing by default and does not provide a remote toggle for it; changing the local environment and restarting is intentional.
 
 ## Phase 5 — kill switch and safety layer
 
@@ -299,7 +301,7 @@ The service uses the saved profile to block a new intent when its risk exceeds t
 | `POST /api/v1/paper-trades/{id}/cancel` | Cancel an unfilled intent |
 | `GET /api/v1/paper-trades/{id}/replay` | Read-only lifecycle replay for one trade |
 
-These endpoints cannot send broker orders. They are the journal and control layer that future broker adapters will use.
+These paper-journal endpoints cannot send broker orders. Live broker routing is isolated behind the separate execution endpoints and the explicit live gates described above.
 
 ## Security and deployment boundary
 
