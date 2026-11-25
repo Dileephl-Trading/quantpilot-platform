@@ -67,17 +67,15 @@ public class LiveMarketController {
     public ResponseEntity<Map<String, Object>> history(@RequestParam(defaultValue = "7") int days) {
         return ResponseEntity.ok(Map.of(
                 "days", Math.max(1, Math.min(days, 7)),
-                "signals", liveMarketService.historySignals(days),
-                "candles", liveMarketService.historyCandles(days)));
+                "watchSetups", liveMarketService.historyCandles(days)));
     }
 
     @GetMapping("/history/page")
     public ResponseEntity<LiveMarketService.MonitorHistoryPage> historyPage(
             @RequestParam(defaultValue = "7") int days,
-            @RequestParam(defaultValue = "0") int signalPage,
-            @RequestParam(defaultValue = "0") int candlePage,
+            @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int pageSize) {
-        return ResponseEntity.ok(liveMarketService.historyPage(days, signalPage, candlePage, pageSize));
+        return ResponseEntity.ok(liveMarketService.historyPage(days, page, pageSize));
     }
 
     public record AddWatchlistRequest(@Positive long instrumentToken) { }

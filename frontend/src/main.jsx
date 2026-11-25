@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, LinearProgress, Pagination, Paper, Stack, Step, StepLabel, Stepper, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, ThemeProvider, Typography, createTheme } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, LinearProgress, MenuItem as MuiMenuItem, Pagination, Paper, Stack, Step, StepLabel, Stepper, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, ThemeProvider, Typography, createTheme } from '@mui/material'
 import './styles.css'
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || ''
@@ -351,7 +351,7 @@ function RiskPreviewMUI({ profile, order, preview, localRisk, checking, changeOr
   return <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'minmax(0,1.2fr) minmax(0,.9fr)' }, gap: 2.5 }}>
     <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow={live ? 'LIVE-TRADE GATE' : 'TRADE RISK GATE'} title="Order risk preview" description="Define the entry, hard stop, and quantity before a trade intent is considered." action={<Chip label={live ? 'Safety checks required' : 'No order routing'} color="info" size="small" />} /><Box component="form" onSubmit={checkOrder} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
       <TextField label="NSE symbol" value={order.symbol} inputProps={{ maxLength: 32 }} onChange={e => changeOrder('symbol', e.target.value.toUpperCase())} />
-      <TextField select SelectProps={{ native: true }} label="Side" value={order.side} onChange={e => changeOrder('side', e.target.value)}><option>BUY</option><option>SELL</option></TextField>
+      <TextField select  label="Side" value={order.side} onChange={e => changeOrder('side', e.target.value)}><MuiMenuItem value="BUY">BUY</MuiMenuItem><MuiMenuItem value="SELL">SELL</MuiMenuItem></TextField>
       <TextField label="Entry price (₹)" type="number" inputProps={{ min: 0, step: .05 }} value={order.entryPrice} onChange={e => changeOrder('entryPrice', e.target.value)} />
       <TextField label="Stop price (₹)" type="number" inputProps={{ min: 0, step: .05 }} value={order.stopPrice} onChange={e => changeOrder('stopPrice', e.target.value)} />
       <TextField label="Quantity" type="number" inputProps={{ min: 1, step: 1 }} value={order.quantity} onChange={e => changeOrder('quantity', e.target.value)} />
@@ -367,7 +367,7 @@ function ProfileMUI({ draft, changeDraft, saveProfile, saving, savedAt }) {
   const live = draft?.mode === 'LIVE'
   const modeLabel = live ? 'LIVE' : draft?.mode === 'DRY_RUN' ? 'DRY-RUN' : 'PAPER'
   return <Card sx={{ ...pageCardSx, maxWidth: 980 }}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="TRADING CONFIGURATION" title="Trading profile" description="Risk limits and execution mode for this account." action={<Chip label={`${modeLabel} MODE`} color={live ? 'success' : 'secondary'} size="small" />} />{savedAt && <Alert severity="success" variant="outlined" sx={{ mb: 2.5, borderRadius: '10px' }}>Profile refreshed and saved at {savedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.</Alert>}<Box component="form" onSubmit={saveProfile} sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', sm: 'repeat(2, minmax(0,1fr))' }, gap: 2 }}>
-      <TextField select SelectProps={{ native: true }} label="Mode" value={draft.mode} onChange={e => changeDraft('mode', e.target.value)}><option>PAPER</option><option>DRY_RUN</option><option>LIVE</option></TextField>
+      <TextField select  label="Mode" value={draft.mode} onChange={e => changeDraft('mode', e.target.value)}><MuiMenuItem value="PAPER">PAPER</MuiMenuItem><MuiMenuItem value="DRY_RUN">DRY_RUN</MuiMenuItem><MuiMenuItem value="LIVE">LIVE</MuiMenuItem></TextField>
       {fields.map(([key, label, type]) => <TextField key={key} label={label} type={type} value={draft[key] ?? ''} inputProps={type === 'number' ? { min: 0 } : undefined} onChange={e => changeDraft(key, e.target.value)} />)}
       <Paper sx={{ ...insetSx, p: 1.6, gridColumn: { sm: '1 / -1' }, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><Box><Typography fontWeight={800}>Enable kill switch</Typography><Typography variant="caption" color="text.secondary">Blocks new trade intents until disabled.</Typography></Box><Switch checked={Boolean(draft.killSwitchEnabled)} onChange={e => changeDraft('killSwitchEnabled', e.target.checked)} /></Paper>
       <Button type="submit" variant="contained" disabled={saving} sx={{ gridColumn: { sm: '1 / -1' }, minHeight: 48 }}>{saving ? 'Saving…' : 'Save trading profile →'}</Button>
@@ -414,10 +414,10 @@ function ExecutionConsoleMUI({ profile, status, form, change, orders, busy, setB
   return <Box sx={{ display: 'grid', gap: 2.5 }}><Alert severity={liveGateReady ? 'success' : 'warning'} variant="outlined" sx={{ borderRadius: '10px' }}><Typography fontWeight={800}>{liveGateReady ? 'Explicit execution gates are open.' : 'Execution is locked.'}</Typography><Typography variant="body2">Every order requires LIVE profile mode, the live execution flag, routing, today’s Kite session, valid risk controls, and confirmation.</Typography><Typography variant="caption" display="block" mt={1}>Automatic signal routing: <b>{automationStatus?.enabled ? 'ENABLED' : 'DISABLED'}</b> · live arming: <b>{automationStatus?.liveExecutionEnabled ? 'ON' : 'OFF'}</b> · max signal age: {automationStatus?.maxSignalAgeSeconds ?? '—'}s · quantity cap: {automationStatus?.maxOrderQuantity ?? '—'} · broker state: <b>{automationStatus?.uncertainBrokerState ? 'RECONCILIATION REQUIRED' : 'READY'}</b></Typography></Alert>
     <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'minmax(0,1.2fr) minmax(0,.9fr)' }, gap: 2.5 }}><Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="CONTROLLED BROKER ROUTING" title="Submit Kite order" action={<Chip label={liveGateReady ? 'GATED LIVE' : 'LOCKED'} color={liveGateReady ? 'success' : 'default'} size="small" />} /><Box component="form" onSubmit={submit} sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', sm: 'repeat(2, minmax(0,1fr))' }, gap: 2 }}>
       <TextField label="NSE symbol" required value={form.symbol} onChange={e => change('symbol', e.target.value.toUpperCase())} />
-      <TextField select SelectProps={{ native: true }} label="Side" value={form.side} onChange={e => change('side', e.target.value)}><option>BUY</option><option>SELL</option></TextField>
-      <TextField select SelectProps={{ native: true }} label="Order type" value={form.orderType} onChange={e => change('orderType', e.target.value)}><option>LIMIT</option><option>MARKET</option><option>SL</option><option>SL-M</option></TextField>
+      <TextField select  label="Side" value={form.side} onChange={e => change('side', e.target.value)}><MuiMenuItem value="BUY">BUY</MuiMenuItem><MuiMenuItem value="SELL">SELL</MuiMenuItem></TextField>
+      <TextField select  label="Order type" value={form.orderType} onChange={e => change('orderType', e.target.value)}><MuiMenuItem value="LIMIT">LIMIT</MuiMenuItem><MuiMenuItem value="MARKET">MARKET</MuiMenuItem><MuiMenuItem value="SL">SL</MuiMenuItem><MuiMenuItem value="SL-M">SL-M</MuiMenuItem></TextField>
       {fields.slice(1).map(([key, label, type]) => <TextField key={key} label={label} type={type} required={key === 'quantity' || key === 'price' || key === 'stopPrice'} value={form[key]} onChange={e => change(key, e.target.value)} />)}
-      <TextField select SelectProps={{ native: true }} label="Product" value={form.product} onChange={e => change('product', e.target.value)}><option>MIS</option><option>CNC</option></TextField>
+      <TextField select  label="Product" value={form.product} onChange={e => change('product', e.target.value)}><MuiMenuItem value="MIS">MIS</MuiMenuItem><MuiMenuItem value="CNC">CNC</MuiMenuItem></TextField>
       <Button type="submit" variant="contained" disabled={busy} sx={{ gridColumn: { sm: '1 / -1' }, minHeight: 48 }}>{busy ? 'Processing…' : 'Submit controlled order'}</Button>
     </Box></CardContent></Card><Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="EXECUTION LIFECYCLE" title="Reconciliation is mandatory" /><Typography variant="body2" color="text.secondary" lineHeight={1.8} mb={3}>The broker response is only an acknowledgement. Tracked orders are reconciled into OPEN, PARTIALLY_FILLED, COMPLETE, REJECTED, and CANCELLED states.</Typography><Button variant="outlined" onClick={reconcile} disabled={busy}>↻ Reconcile tracked orders</Button></CardContent></Card></Box>
     <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2, md: 3 } }}><PageHeading eyebrow="TRACKED ORDERS" title="Execution history" action={<Button variant="outlined" onClick={refresh} disabled={busy}>↻ Refresh</Button>} />{orders.length === 0 ? <Alert severity="info">No broker execution requests are recorded.</Alert> : <TableContainer sx={{ maxHeight: 520, borderRadius: 2, ...insetSx }}><Table stickyHeader size="small"><TableHead><TableRow>{['Order', 'Symbol', 'Side', 'Quantity', 'Filled', 'Status', ''].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{orders.map(order => <TableRow hover key={order.orderId}><TableCell><Typography fontWeight={800}>{order.orderId}</Typography><Typography variant="caption" color="text.secondary">{order.observedAt ? new Date(order.observedAt).toLocaleString() : ''}</Typography></TableCell><TableCell>{order.symbol || '—'}</TableCell><TableCell><Chip label={order.side || '—'} size="small" color={order.side === 'BUY' ? 'success' : 'error'} variant="outlined" /></TableCell><TableCell>{order.quantity}</TableCell><TableCell>{order.filledQuantity}{order.averagePrice ? ` @ ₹${order.averagePrice}` : ''}</TableCell><TableCell><Chip label={order.status} size="small" /></TableCell><TableCell>{['PENDING', 'OPEN', 'PARTIALLY_FILLED'].includes(order.status) && <Button size="small" color="error" onClick={() => cancel(order.orderId)} disabled={busy}>Cancel</Button>}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</CardContent></Card>
@@ -436,9 +436,9 @@ function JournalMUI({ notify }) {
   const metrics = [['Today’s realised P&L', money(summary?.realisedPnl), 'After recorded charges'], ['Active risk', money(summary?.activeRisk), 'Intended + open trade risk'], ['Remaining daily capacity', money(summary?.remainingDailyRiskCapacity), `Of ${money(summary?.maxDailyLoss)} daily limit`], ['Session activity', `${summary?.initiatedTrades || 0} intents / ${summary?.openPositions || 0} open`, 'Today’s journal'], ['Win rate', `${report?.winRate || 0}%`, `${report?.winningTrades || 0} wins / ${report?.closedTrades || 0} closed`], ['Entry slippage', money(report?.totalSlippage), 'Adverse slippage is positive']]
   const setField = (key, value) => setForm(current => ({ ...current, [key]: value }))
   return <Box sx={{ minWidth: 0, display: 'grid', gap: 2.5 }}><Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0,1fr))', lg: 'repeat(6, minmax(0,1fr))' }, gap: 1.5 }}>{metrics.map(([label, value, detail]) => <Card key={label} sx={{ ...pageCardSx, minHeight: 116 }}><CardContent sx={{ p: 1.8 }}><Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{label}</Typography><Typography variant="h6" mt={.7} sx={{ overflowWrap: 'anywhere' }}>{value}</Typography><Typography variant="caption" color="text.secondary">{detail}</Typography></CardContent></Card>)}</Box>
-    <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'minmax(0,1.2fr) minmax(0,.8fr)' }, gap: 2.5, alignItems: 'start' }}><Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="RECORD DECISION" title="New trade intent" description="This captures the planned trade. It does not create a fill." /><Box component="form" onSubmit={createIntent} sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', sm: 'repeat(2, minmax(0,1fr))' }, gap: 2 }}><TextField label="NSE symbol" value={form.symbol} onChange={e => setField('symbol', e.target.value.toUpperCase())} /><TextField select SelectProps={{ native: true }} label="Side" value={form.side} onChange={e => setField('side', e.target.value)}><option>BUY</option><option>SELL</option></TextField><TextField required label="Intended entry (₹)" type="number" value={form.intendedEntryPrice} onChange={e => setField('intendedEntryPrice', e.target.value)} /><TextField required label="Hard stop (₹)" type="number" value={form.stopPrice} onChange={e => setField('stopPrice', e.target.value)} /><TextField required label="Intended quantity" type="number" value={form.intendedQuantity} onChange={e => setField('intendedQuantity', e.target.value)} /><TextField label="Strategy label" placeholder="Opening-range breakout" value={form.strategy} onChange={e => setField('strategy', e.target.value)} /><TextField multiline minRows={3} label="Notes" placeholder="Why this setup qualified…" value={form.notes} onChange={e => setField('notes', e.target.value)} sx={{ gridColumn: { sm: '1 / -1' } }} /><Button type="submit" variant="contained" disabled={creating} sx={{ gridColumn: { sm: '1 / -1' }, minHeight: 48 }}>{creating ? 'Saving…' : 'Record intended trade →'}</Button></Box></CardContent></Card><Card sx={{ ...pageCardSx, background: 'linear-gradient(145deg,#e5f7f7,#eaf0f8)' }}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="LIFECYCLE" title="Intent ≠ fill" /><Stack gap={2}><Typography variant="body2"><b>INTENDED</b> — approved plan and proposed risk.</Typography><Typography variant="body2"><b>OPEN</b> — record actual fill price and quantity.</Typography><Typography variant="body2"><b>CLOSED</b> — record actual exit, charges, and P&amp;L.</Typography></Stack><Typography variant="body2" color="text.secondary" mt={3}>There is no assumed fill price in this journal.</Typography></CardContent></Card></Box>
+    <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'minmax(0,1.2fr) minmax(0,.8fr)' }, gap: 2.5, alignItems: 'start' }}><Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="RECORD DECISION" title="New trade intent" description="This captures the planned trade. It does not create a fill." /><Box component="form" onSubmit={createIntent} sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', sm: 'repeat(2, minmax(0,1fr))' }, gap: 2 }}><TextField label="NSE symbol" value={form.symbol} onChange={e => setField('symbol', e.target.value.toUpperCase())} /><TextField select  label="Side" value={form.side} onChange={e => setField('side', e.target.value)}><MuiMenuItem value="BUY">BUY</MuiMenuItem><MuiMenuItem value="SELL">SELL</MuiMenuItem></TextField><TextField required label="Intended entry (₹)" type="number" value={form.intendedEntryPrice} onChange={e => setField('intendedEntryPrice', e.target.value)} /><TextField required label="Hard stop (₹)" type="number" value={form.stopPrice} onChange={e => setField('stopPrice', e.target.value)} /><TextField required label="Intended quantity" type="number" value={form.intendedQuantity} onChange={e => setField('intendedQuantity', e.target.value)} /><TextField label="Strategy label" placeholder="Opening-range breakout" value={form.strategy} onChange={e => setField('strategy', e.target.value)} /><TextField multiline minRows={3} label="Notes" placeholder="Why this setup qualified…" value={form.notes} onChange={e => setField('notes', e.target.value)} sx={{ gridColumn: { sm: '1 / -1' } }} /><Button type="submit" variant="contained" disabled={creating} sx={{ gridColumn: { sm: '1 / -1' }, minHeight: 48 }}>{creating ? 'Saving…' : 'Record intended trade →'}</Button></Box></CardContent></Card><Card sx={{ ...pageCardSx, background: 'linear-gradient(145deg,#e5f7f7,#eaf0f8)' }}><CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}><PageHeading eyebrow="LIFECYCLE" title="Intent ≠ fill" /><Stack gap={2}><Typography variant="body2"><b>INTENDED</b> — approved plan and proposed risk.</Typography><Typography variant="body2"><b>OPEN</b> — record actual fill price and quantity.</Typography><Typography variant="body2"><b>CLOSED</b> — record actual exit, charges, and P&amp;L.</Typography></Stack><Typography variant="body2" color="text.secondary" mt={3}>There is no assumed fill price in this journal.</Typography></CardContent></Card></Box>
     <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2, md: 3 } }}><PageHeading eyebrow="TODAY" title="Trade history" action={<Stack direction="row" gap={1}><Button variant="outlined" onClick={reload}>↻ Refresh</Button><Button variant="outlined" onClick={() => window.open(`${apiBase}/api/v1/paper-trades/export`, '_blank')}>↓ Export CSV</Button></Stack>} />{loading ? <LinearProgress /> : trades.length === 0 ? <Alert severity="info">No intents recorded today. Start by recording a risk-checked setup.</Alert> : <TableContainer sx={{ maxHeight: 560, borderRadius: 2, ...insetSx }}><Table stickyHeader size="small"><TableHead><TableRow>{['Symbol', 'Side', 'Status', 'Intended', 'Actual', 'Slippage', 'Net P&L', ''].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{trades.map(trade => <TableRow hover key={trade.id}><TableCell><Typography fontWeight={800}>{trade.symbol}</Typography><Typography variant="caption" color="text.secondary">{trade.strategy || 'No strategy label'}</Typography></TableCell><TableCell><Chip label={trade.side} size="small" color={trade.side === 'BUY' ? 'success' : 'error'} variant="outlined" /></TableCell><TableCell><Chip label={trade.status} size="small" /></TableCell><TableCell>₹{trade.intendedEntryPrice} × {trade.intendedQuantity}<Typography variant="caption" display="block">Stop ₹{trade.stopPrice}</Typography></TableCell><TableCell>{trade.actualEntryPrice ? <>₹{trade.actualEntryPrice} × {trade.filledQuantity}<Typography variant="caption" display="block">{trade.actualExitPrice ? `Exit ₹${trade.actualExitPrice}` : 'Open position'}</Typography></> : '—'}</TableCell><TableCell>{trade.slippageAmount == null ? '—' : money(trade.slippageAmount)}<Typography variant="caption" display="block">{trade.slippagePerUnit == null ? '' : `₹${trade.slippagePerUnit}/unit`}</Typography></TableCell><TableCell color={Number(trade.netPnl) < 0 ? 'error' : 'success'}>{trade.netPnl == null ? '—' : money(trade.netPnl)}</TableCell><TableCell><Stack direction="row" gap={.5} flexWrap="wrap"><Button size="small" onClick={() => openReplay(trade)}>Replay</Button>{trade.status === 'INTENDED' && <><Button size="small" onClick={() => startAction('fill', trade)}>Fill</Button><Button size="small" color="error" onClick={() => { if (window.confirm(`Cancel ${trade.symbol} intent?`)) startAction('cancel', trade) }}>Cancel</Button></>}{trade.status === 'OPEN' && <Button size="small" onClick={() => startAction('close', trade)}>Close</Button>}</Stack></TableCell></TableRow>)}</TableBody></Table></TableContainer>}</CardContent></Card>
-    <Dialog open={Boolean(action)} onClose={() => setAction(null)} fullWidth maxWidth="xs"><Box component="form" onSubmit={submitAction}><DialogTitle>{action?.type === 'fill' ? 'Record actual fill' : action?.type === 'close' ? 'Record actual exit' : 'Cancel trade intent'}{action && <Typography variant="caption" display="block" color="text.secondary">{action.trade.symbol}</Typography>}</DialogTitle><DialogContent>{action?.type === 'cancel' ? <Typography color="text.secondary">Confirm that no fill occurred. This action cannot be reversed.</Typography> : <Stack gap={2} pt={1}><TextField autoFocus required label={action?.type === 'fill' ? 'Actual entry price (₹)' : 'Actual exit price (₹)'} type="number" value={actionPrice} onChange={e => setActionPrice(e.target.value)} />{action?.type === 'fill' && <TextField required label="Actual filled quantity" type="number" inputProps={{ min: 1, max: action.trade.intendedQuantity }} value={actionQuantity} onChange={e => setActionQuantity(e.target.value)} />}{action?.type === 'close' && <><TextField required label="Brokerage and charges (₹)" type="number" value={brokerage} onChange={e => setBrokerage(e.target.value)} /><TextField select SelectProps={{ native: true }} label="Exit reason" value={exitReason} onChange={e => setExitReason(e.target.value)}><option>STOP_LOSS</option><option>TARGET</option><option>MANUAL</option><option>END_OF_DAY</option></TextField></>}</Stack>}</DialogContent><DialogActions><Button onClick={() => setAction(null)}>Close</Button><Button type="submit" variant="contained" color={action?.type === 'cancel' ? 'error' : 'primary'}>{action?.type === 'fill' ? 'Confirm actual fill' : action?.type === 'close' ? 'Record exit and P&L' : 'Confirm cancellation'}</Button></DialogActions></Box></Dialog>
+    <Dialog open={Boolean(action)} onClose={() => setAction(null)} fullWidth maxWidth="xs"><Box component="form" onSubmit={submitAction}><DialogTitle>{action?.type === 'fill' ? 'Record actual fill' : action?.type === 'close' ? 'Record actual exit' : 'Cancel trade intent'}{action && <Typography variant="caption" display="block" color="text.secondary">{action.trade.symbol}</Typography>}</DialogTitle><DialogContent>{action?.type === 'cancel' ? <Typography color="text.secondary">Confirm that no fill occurred. This action cannot be reversed.</Typography> : <Stack gap={2} pt={1}><TextField autoFocus required label={action?.type === 'fill' ? 'Actual entry price (₹)' : 'Actual exit price (₹)'} type="number" value={actionPrice} onChange={e => setActionPrice(e.target.value)} />{action?.type === 'fill' && <TextField required label="Actual filled quantity" type="number" inputProps={{ min: 1, max: action.trade.intendedQuantity }} value={actionQuantity} onChange={e => setActionQuantity(e.target.value)} />}{action?.type === 'close' && <><TextField required label="Brokerage and charges (₹)" type="number" value={brokerage} onChange={e => setBrokerage(e.target.value)} /><TextField select  label="Exit reason" value={exitReason} onChange={e => setExitReason(e.target.value)}><MuiMenuItem value="STOP_LOSS">STOP_LOSS</MuiMenuItem><MuiMenuItem value="TARGET">TARGET</MuiMenuItem><MuiMenuItem value="MANUAL">MANUAL</MuiMenuItem><MuiMenuItem value="END_OF_DAY">END_OF_DAY</MuiMenuItem></TextField></>}</Stack>}</DialogContent><DialogActions><Button onClick={() => setAction(null)}>Close</Button><Button type="submit" variant="contained" color={action?.type === 'cancel' ? 'error' : 'primary'}>{action?.type === 'fill' ? 'Confirm actual fill' : action?.type === 'close' ? 'Record exit and P&L' : 'Confirm cancellation'}</Button></DialogActions></Box></Dialog>
     <Dialog open={Boolean(replay)} onClose={() => setReplay(null)} fullWidth maxWidth="sm"><DialogTitle>Recorded lifecycle<Typography variant="caption" display="block" color="text.secondary">{replay?.trade.symbol} · replay is read-only</Typography></DialogTitle><DialogContent><Stack gap={1.5}>{replay?.events.map((event, index) => <Paper key={`${event.event}-${index}`} sx={{ ...insetSx, p: 1.5 }}><Typography fontWeight={800}>{index + 1}. {event.event.replaceAll('_', ' ')}</Typography><Typography variant="caption" color="text.secondary">{event.occurredAt ? new Date(event.occurredAt).toLocaleString() : '—'} · {event.details}</Typography>{event.netPnl != null && <Typography variant="caption" display="block">Gross {money(event.grossPnl)} · Charges {money(event.charges)} · Net {money(event.netPnl)}</Typography>}</Paper>)}</Stack></DialogContent><DialogActions><Button onClick={() => setReplay(null)}>Close</Button></DialogActions></Dialog>
   </Box>
 }
@@ -715,7 +715,7 @@ function KiteIntegration({ status, refresh, notify, onOpenMonitorHistory }) {
         <Button variant="contained" onClick={syncInstruments} disabled={!marketDataReady || syncing}>{syncing ? 'Syncing symbols…' : 'Sync NSE cash symbols'}</Button>{syncResult && <Typography component="span" variant="body2" color="text.secondary" ml={2}>{syncResult.savedInstruments} symbols synced</Typography>}
         {symbolMessage && <Alert severity={hasSyncedSymbols === false ? 'info' : 'warning'} sx={{ mt: 2 }} action={hasSyncedSymbols === false && <Button color="inherit" size="small" onClick={syncInstruments} disabled={syncing}>{syncing ? 'Syncing…' : 'Sync now'}</Button>}>{symbolMessage}</Alert>}
         <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', md: '280px minmax(0,1fr)' }, gap: 2.5, mt: 3, pt: 3, borderTop: '1px solid rgba(108,128,158,.18)' }}>
-          <Box component="form" onSubmit={searchInstruments} sx={{ display: 'grid', gap: 1.5, alignContent: 'start' }}><TextField label="Search synced NSE symbol" value={symbolQuery} placeholder="SBIN" onChange={event => setSymbolQuery(event.target.value.toUpperCase())} /><TextField select SelectProps={{ native: true }} label="Sector filter" value={sectorFilter} onChange={event => setSectorFilter(event.target.value)}><option value="">All sectors</option><option value="BANKING">Banking</option><option value="IT">IT</option><option value="AUTO">Auto</option><option value="ENERGY">Energy</option><option value="PHARMA">Pharma</option><option value="FMCG">FMCG</option><option value="OTHER">Other</option></TextField><Button type="submit" variant="outlined" disabled={!marketDataReady}>Search symbols</Button></Box>
+          <Box component="form" onSubmit={searchInstruments} sx={{ display: 'grid', gap: 1.5, alignContent: 'start' }}><TextField label="Search synced NSE symbol" value={symbolQuery} placeholder="SBIN" onChange={event => setSymbolQuery(event.target.value.toUpperCase())} /><TextField select  label="Sector filter" value={sectorFilter} onChange={event => setSectorFilter(event.target.value)}><MuiMenuItem value="">All sectors</MuiMenuItem><MuiMenuItem value="BANKING">Banking</MuiMenuItem><MuiMenuItem value="IT">IT</MuiMenuItem><MuiMenuItem value="AUTO">Auto</MuiMenuItem><MuiMenuItem value="ENERGY">Energy</MuiMenuItem><MuiMenuItem value="PHARMA">Pharma</MuiMenuItem><MuiMenuItem value="FMCG">FMCG</MuiMenuItem><MuiMenuItem value="OTHER">Other</MuiMenuItem></TextField><Button type="submit" variant="outlined" disabled={!marketDataReady}>Search symbols</Button></Box>
           <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', sm: 'repeat(2,minmax(0,1fr))' }, gap: 1.25, alignContent: 'start', maxHeight: 330, overflowY: 'auto', pr: .5 }}>{instruments.length === 0 ? <Alert severity="info">Sync the NSE symbols first, then search here.</Alert> : instruments.map(item => <Paper key={item.instrumentToken} component="button" type="button" onClick={() => setSelected(item)} sx={{ minWidth: 0, textAlign: 'left', p: 1.5, cursor: 'pointer', border: selected?.instrumentToken === item.instrumentToken ? '2px solid #078f9f' : '1px solid rgba(108,128,158,.18)', bgcolor: 'background.paper', borderRadius: '10px' }}><Typography fontWeight={800} sx={{ overflowWrap: 'anywhere' }}>{item.tradingsymbol}</Typography><Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{item.sector || 'OTHER'} · {item.name || item.segment}</Typography></Paper>)}</Box>
         </Box>
         {selected && <Paper sx={{ mt: 3, p: 2, display: 'flex', alignItems: { xs: 'stretch', md: 'flex-end' }, gap: 1.5, flexWrap: 'wrap', bgcolor: '#f2f8fb' }}><Box sx={{ minWidth: 0, mr: 'auto', flex: '1 1 220px' }}><Typography variant="overline" color="text.secondary">SELECTED SYMBOL</Typography><Typography fontWeight={800} sx={{ overflowWrap: 'anywhere' }}>{selected.tradingsymbol}</Typography><Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{selected.sector || 'OTHER'} · ready for monitoring</Typography></Box><Button variant="outlined" onClick={addSelectedToMonitor}>Add to Live monitor</Button><TextField sx={{ flex: '1 1 170px' }} type="date" label="Trading date" InputLabelProps={{ shrink: true }} value={tradeDate} onChange={event => setTradeDate(event.target.value)} /><Button variant="contained" onClick={verifyHistorical} disabled={verifying || !marketDataReady}>{verifying ? 'Fetching…' : 'Fetch and evaluate'}</Button></Paper>}
@@ -885,12 +885,18 @@ function LiveStreamMUI({ selected, marketDataReady, notify, onNavigate, onOpenMo
   async function refresh(signalPage = signalsPage.page, candlePage = candlesPage.page) {
     try {
       const [nextStatus, nextWatchlist, nextSignals, nextCandles] = await Promise.all([
-        api('/api/v1/live-market/status'), api('/api/v1/live-market/watchlist'),
-        api(`/api/v1/live-market/signals/page?page=${signalPage}&pageSize=10`),
-        api(`/api/v1/live-market/candles/page?page=${candlePage}&pageSize=10`)
+        api('/api/v1/live-market/status'),
+        api('/api/v1/live-market/watchlist'),
+        api('/api/v1/live-market/signals/page?page=' + signalPage + '&pageSize=10'),
+        api('/api/v1/live-market/candles/page?page=' + candlePage + '&pageSize=10')
       ])
-      setStatus(nextStatus); setWatchlist(nextWatchlist); setSignalsPage(nextSignals); setCandlesPage(nextCandles)
-    } catch (error) { notify({ tone: 'error', text: error.message }) }
+      setStatus(nextStatus)
+      setWatchlist(nextWatchlist)
+      setSignalsPage(nextSignals)
+      setCandlesPage(nextCandles)
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    }
   }
 
   useEffect(() => { refresh() }, [])
@@ -909,91 +915,212 @@ function LiveStreamMUI({ selected, marketDataReady, notify, onNavigate, onOpenMo
   async function search(event) {
     event.preventDefault()
     if (!marketDataReady) { setMessage('Connect Kite first.'); return }
-    if (hasSyncedSymbols === false) { setMessage('Sync NSE symbols first.'); return }
+    if (hasSyncedSymbols !== true) { setMessage('Sync NSE symbols first, then search from the synced catalogue.'); return }
     if (!query.trim()) return
-    setSearching(true); setMessage('')
+    setSearching(true)
+    setMessage('')
     try {
       const next = await api('/api/v1/market-data/instruments?query=' + encodeURIComponent(query.trim().toUpperCase()))
-      setResults(next); if (!next.length) setMessage('No synced NSE symbol matched this search.')
-    } catch (error) { setMessage(error.message) } finally { setSearching(false) }
+      setResults(next)
+      if (!next.length) setMessage('No synced NSE symbol matched this search.')
+    } catch (error) {
+      setMessage(error.message)
+    } finally {
+      setSearching(false)
+    }
   }
 
   async function addSymbol(instrument) {
     setBusy(true)
-    try { await api('/api/v1/live-market/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrumentToken: instrument.instrumentToken }) }); await refresh(); setResults([]); notify({ tone: 'success', text: `${instrument.tradingsymbol} added to the live monitor.` }) }
-    catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
+    try {
+      await api('/api/v1/live-market/watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instrumentToken: instrument.instrumentToken })
+      })
+      await refresh()
+      setResults([])
+      notify({ tone: 'success', text: instrument.tradingsymbol + ' added to the live monitor.' })
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    } finally {
+      setBusy(false)
+    }
   }
-  async function addSelected() { if (selected) await addSymbol(selected) }
+
+  async function addSelected() {
+    if (selected) await addSymbol(selected)
+  }
+
   async function removeSymbol(token, symbol) {
     setBusy(true)
-    try { await api(`/api/v1/live-market/watchlist/${token}`, { method: 'DELETE' }); await refresh(); notify({ tone: 'success', text: `${symbol} removed from the watchlist.` }) }
-    catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
+    try {
+      await api('/api/v1/live-market/watchlist/' + token, { method: 'DELETE' })
+      await refresh()
+      notify({ tone: 'success', text: symbol + ' removed from the watchlist.' })
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    } finally {
+      setBusy(false)
+    }
   }
+
   async function addGroup(group) {
     setBusy(true)
-    try { await api(`/api/v1/live-market/watchlist/groups/${group}`, { method: 'POST' }); await refresh(); notify({ tone: 'success', text: `${group} group added to the watchlist.` }) }
-    catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
+    try {
+      await api('/api/v1/live-market/watchlist/groups/' + group, { method: 'POST' })
+      await refresh()
+      notify({ tone: 'success', text: group + ' group added to the watchlist.' })
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    } finally {
+      setBusy(false)
+    }
   }
+
   async function toggle(path) {
     setBusy(true)
-    try { await api(path, { method: 'POST' }); await refresh() } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
+    try {
+      await api(path, { method: 'POST' })
+      await refresh()
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const connected = status?.state === 'CONNECTED'
-  const signalCardSx = signal => ({ p: 1.25, borderRadius: '8px', borderLeft: `4px solid ${signal.type === 'WATCH_LONG' ? '#16866f' : '#c54b57'}`, bgcolor: signal.type === 'WATCH_LONG' ? 'rgba(218,247,237,.72)' : 'rgba(255,231,233,.76)' })
+  const activeStep = !marketDataReady ? 0 : hasSyncedSymbols !== true ? 1 : watchlist.length === 0 ? 2 : connected ? 3 : 2
+  const evaluationLabel = type => type === 'WATCH_LONG' ? 'WATCH LONG' : type === 'WATCH_SHORT' ? 'WATCH SHORT' : type === 'NO_TRADE' ? 'NO TRADE' : type === 'WARMING_UP' ? 'WARMING UP' : type || '—'
+  const evaluationColor = type => type === 'WATCH_LONG' ? 'success' : type === 'WATCH_SHORT' ? 'error' : type === 'NO_TRADE' ? 'default' : 'warning'
+  const evaluationPaperSx = type => ({
+    p: 1.25,
+    borderRadius: '8px',
+    borderLeft: '4px solid ' + (type === 'WATCH_LONG' ? '#16866f' : type === 'WATCH_SHORT' ? '#c54b57' : '#b56b00'),
+    bgcolor: type === 'WATCH_LONG' ? 'rgba(218,247,237,.72)' : type === 'WATCH_SHORT' ? 'rgba(255,231,233,.76)' : 'rgba(255,247,225,.84)'
+  })
+  const time = value => value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'
+
   return <ThemeProvider theme={marketTheme}>
-    <Card className="live-card" sx={pageCardSx}><CardContent sx={{ minWidth: 0, p: { xs: 2.5, md: 3.5 } }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'flex-start' }} gap={2} mb={2} sx={{ minWidth: 0 }}><Box sx={{ minWidth: 0 }}><Typography variant="overline" color="text.secondary" letterSpacing=".14em">LIVE WATCHLIST · SERVER OWNED</Typography><Typography variant="h5" sx={{ overflowWrap: 'anywhere' }}>Completed-candle signal monitor</Typography><Typography variant="body2" color="text.secondary" sx={{ maxWidth: '68ch', lineHeight: 1.6 }}>Only this NSE session is shown here. Signals are generated after a five-minute candle closes; a signal can reach live execution only after every independent safety gate passes.</Typography></Box><Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><Button size="small" variant="outlined" onClick={onOpenMonitorHistory}>7-day history</Button><Chip label={status?.state || 'STOPPED'} color={connected ? 'success' : 'default'} /></Stack> </Stack>
-      <Paper sx={{ minWidth: 0, p: 2, mb: 2.5, bgcolor: '#f4f7fb', overflowX: 'auto' }}><Typography variant="subtitle2" fontWeight={800} mb={1.5}>Live-monitor setup</Typography><Stepper activeStep={!marketDataReady ? 0 : hasSyncedSymbols ? 2 : 1} alternativeLabel sx={{ minWidth: { xs: 520, sm: 0 }, '& .MuiStepLabel-label': { fontSize: { xs: 10, sm: 12 }, whiteSpace: 'normal' } }}><Step><StepLabel>Kite connected</StepLabel></Step><Step><StepLabel>NSE symbols synced</StepLabel></Step><Step><StepLabel>Search and add</StepLabel></Step><Step><StepLabel>Start monitor</StepLabel></Step></Stepper>{!marketDataReady && <Alert severity="warning" action={<Button size="small" onClick={() => onNavigate?.('connection')}>Go to Connection</Button>} sx={{ mt: 2 }}>Connect Kite first. Live monitoring requires an active daily session.</Alert>}{marketDataReady && hasSyncedSymbols === false && <Alert severity="info" action={<Button size="small" onClick={() => onNavigate?.('symbols')}>Sync symbols</Button>} sx={{ mt: 2 }}>Sync NSE symbols before searching and adding a stock.</Alert>}{message && <Alert severity="warning" sx={{ mt: 2 }}>{message}</Alert>}</Paper>
-      <Box component="form" onSubmit={search} sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap' }}><TextField fullWidth sx={{ flex: '1 1 340px' }} label="Search synced NSE symbol" placeholder="SBIN, HDFCBANK, INFY" value={query} onChange={event => setQuery(event.target.value.toUpperCase())} /><Button type="submit" variant="contained" disabled={!query.trim() || searching}>{searching ? 'Searching…' : 'Search and add'}</Button></Box>
-      {results.length > 0 && <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', sm: 'repeat(2,minmax(0,1fr))' }, gap: 1.25, mb: 2, maxHeight: 260, overflowY: 'auto' }}>{results.map(item => <Paper key={item.instrumentToken} sx={{ minWidth: 0, p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}><Box sx={{ minWidth: 0 }}><Typography fontWeight={800} sx={{ overflowWrap: 'anywhere' }}>{item.tradingsymbol}</Typography><Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{item.sector || 'OTHER'} · {item.name || item.segment}</Typography></Box><Button size="small" variant="contained" onClick={() => addSymbol(item)} disabled={busy}>Add</Button></Paper>)}</Box>}
-      <Stack direction="row" gap={1} flexWrap="wrap" mb={2.5}><Button variant="outlined" onClick={refresh}>Refresh</Button><Button variant="outlined" onClick={addSelected} disabled={!marketDataReady || !selected || busy}>{selected ? `Add ${selected.tradingsymbol}` : 'Select a symbol above'}</Button>{groups.map(group => <Button key={group} variant="outlined" size="small" onClick={() => addGroup(group)} disabled={!marketDataReady || busy}>{group === 'bank-nifty' ? 'Bank Nifty' : group.toUpperCase()}</Button>)}{connected ? <Button color="error" variant="contained" onClick={() => toggle('/api/v1/live-market/stop')} disabled={busy}>Stop monitor</Button> : <Button variant="contained" onClick={() => toggle('/api/v1/live-market/start')} disabled={!marketDataReady || watchlist.length === 0 || busy}>{busy ? 'Working…' : 'Start monitor'}</Button>}</Stack>
-      <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'repeat(2,minmax(0,1fr))' }, gap: 2, mb: 2.5 }}><Paper sx={{ minWidth: 0, p: 2, maxHeight: 360, overflowY: 'auto' }}><Typography variant="overline" color="text.secondary">WATCHLIST · {watchlist.length}/{status?.maxSupportedInstruments || 50} SYMBOLS</Typography>{watchlist.length === 0 ? <Typography variant="body2" color="text.secondary" mt={1}>No selected symbols yet.</Typography> : <Stack divider={<Divider flexItem />} mt={1}>{watchlist.map(item => <Stack key={item.instrumentToken} direction="row" justifyContent="space-between" alignItems="center" py={1} gap={1}><Box sx={{ minWidth: 0 }}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{item.symbol}</Typography><Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{status?.latestPrices?.[item.instrumentToken] ? `${money(status.latestPrices[item.instrumentToken])} · ${status.lastTickAt ? new Date(status.lastTickAt).toLocaleTimeString() : 'tick'}` : 'Waiting for first tick'}</Typography></Box><Button size="small" color="error" onClick={() => removeSymbol(item.instrumentToken, item.symbol)} disabled={busy || connected}>Remove</Button></Stack>)}</Stack>}</Paper><Paper sx={{ minWidth: 0, p: 2, maxHeight: 360, overflowY: 'auto' }}><Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}><Typography variant="overline" color="text.secondary">WATCH SIGNALS · THIS SESSION</Typography><Typography variant="caption" color="text.secondary">{signalsPage.totalElements || 0} total</Typography></Stack>{signalsPage.items.length === 0 ? <Typography variant="body2" color="text.secondary" mt={1}>{connected ? 'No watch signal yet.' : 'Start the monitor after adding symbols.'}</Typography> : <Stack gap={1} mt={1}>{signalsPage.items.map(signal => <Paper key={`${signal.instrumentToken}-${signal.candleStart}`} sx={signalCardSx(signal)}><Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}><Typography fontWeight={800} sx={{ overflowWrap: 'anywhere' }}>{signal.symbol}</Typography><Chip size="small" label={signal.type === 'WATCH_LONG' ? 'WATCH LONG' : 'WATCH SHORT'} color={signal.type === 'WATCH_LONG' ? 'success' : 'error'} /></Stack><Typography variant="caption" color="text.secondary">{money(signal.referencePrice)} · {new Date(signal.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Typography></Paper>)}</Stack>}{signalsPage.totalPages > 1 && <Pagination sx={{ mt: 1 }} size="small" count={signalsPage.totalPages} page={signalsPage.page + 1} onChange={(_, value) => refresh(value - 1, candlesPage.page)} disabled={busy} />}</Paper></Box>
-      <Paper sx={{ minWidth: 0, p: 2, mb: 2.5 }}><Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={.75} mb={1}><Box><Typography variant="overline" color="text.secondary">WATCH SETUPS · THIS SESSION</Typography><Typography variant="caption" display="block" color="text.secondary">{candlesPage.totalElements ? `${candlesPage.totalElements} actionable evaluations` : 'No watch setup received in this run'}</Typography></Box></Stack>{candlesPage.items.length === 0 ? <Typography variant="body2" color="text.secondary">A watch setup appears after a completed five-minute candle meets the scanner rules.</Typography> : <Box sx={{ overflow: 'auto', maxHeight: 350 }}><table className="candle-table"><thead><tr><th>Symbol / time</th><th>OHLC</th><th>Volume</th><th>Signal</th><th>VWAP</th></tr></thead><tbody>{candlesPage.items.map(candle => <tr key={`${candle.instrumentToken}-${candle.candleStart}`}><td><strong>{candle.symbol}</strong><small>{new Date(candle.candleStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></td><td>{money(candle.open)} / {money(candle.high)} / {money(candle.low)} / {money(candle.close)}</td><td>{candle.volume.toLocaleString()}</td><td><Chip size="small" label={candle.evaluationType === 'WATCH_LONG' ? 'WATCH LONG' : 'WATCH SHORT'} color={candle.evaluationType === 'WATCH_LONG' ? 'success' : 'error'} variant="outlined" /></td><td>{candle.vwap ? money(candle.vwap) : '—'}</td></tr>)}</tbody></table></Box>}{candlesPage.totalPages > 1 && <Pagination sx={{ mt: 1 }} size="small" count={candlesPage.totalPages} page={candlesPage.page + 1} onChange={(_, value) => refresh(signalsPage.page, value - 1)} disabled={busy} />}</Paper>
-      {status?.lastError && <Alert severity="error" sx={{ mb: 2 }}>{status.lastError}</Alert>}
-      <Alert severity="info" action={<Button size="small" onClick={onOpenMonitorHistory}>Open history</Button>}>The default bank watchlist and any symbols you add are valid for this NSE session. Review actionable watch signals from the last seven days in Monitor history.</Alert>
-    </CardContent></Card>
+    <Card className="live-card" sx={pageCardSx}>
+      <CardContent sx={{ minWidth: 0, p: { xs: 2.5, md: 3.5 } }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'flex-start' }} gap={2} mb={2} sx={{ minWidth: 0 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="overline" color="text.secondary" letterSpacing=".14em">LIVE WATCHLIST · SERVER OWNED</Typography>
+            <Typography variant="h5" sx={{ overflowWrap: 'anywhere' }}>Completed-candle signal monitor</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: '72ch', lineHeight: 1.6 }}>This page shows every watchlist evaluation for the current NSE session. NO TRADE and WARMING UP are informational; only WATCH LONG and WATCH SHORT can reach the separate live-order safety gates.</Typography>
+          </Box>
+          <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+            <Button size="small" variant="outlined" onClick={onOpenMonitorHistory}>7-day history</Button>
+            <Chip label={status?.state || 'STOPPED'} color={connected ? 'success' : 'default'} />
+          </Stack>
+        </Stack>
+
+        <Paper sx={{ minWidth: 0, p: 2, mb: 2.5, bgcolor: '#f4f7fb', overflowX: 'auto', borderRadius: '8px' }}>
+          <Typography variant="subtitle2" fontWeight={800} mb={1.5}>Live-monitor setup</Typography>
+          <Stepper activeStep={activeStep} alternativeLabel sx={{ minWidth: { xs: 520, sm: 0 }, '& .MuiStepLabel-label': { fontSize: { xs: 10, sm: 12 }, whiteSpace: 'normal' } }}>
+            <Step><StepLabel>Kite connected</StepLabel></Step>
+            <Step><StepLabel>NSE symbols synced</StepLabel></Step>
+            <Step><StepLabel>Search and add</StepLabel></Step>
+            <Step><StepLabel>Start monitor</StepLabel></Step>
+          </Stepper>
+          {!marketDataReady && <Alert severity="warning" action={<Button size="small" onClick={() => onNavigate?.('connection')}>Go to Connection</Button>} sx={{ mt: 2 }}>Connect Kite first. Live monitoring requires an active daily session.</Alert>}
+          {marketDataReady && hasSyncedSymbols === false && <Alert severity="info" action={<Button size="small" onClick={() => onNavigate?.('symbols')}>Sync symbols</Button>} sx={{ mt: 2 }}>Sync NSE symbols before searching, adding a symbol, or starting the monitor.</Alert>}
+          {message && <Alert severity="warning" sx={{ mt: 2 }}>{message}</Alert>}
+        </Paper>
+
+        <Box component="form" onSubmit={search} sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
+          <TextField fullWidth sx={{ flex: '1 1 340px' }} label="Search synced NSE symbol" placeholder="SBIN, HDFCBANK, INFY" value={query} onChange={event => setQuery(event.target.value.toUpperCase())} />
+          <Button type="submit" variant="contained" disabled={!query.trim() || searching || hasSyncedSymbols !== true}>{searching ? 'Searching…' : 'Search and add'}</Button>
+        </Box>
+
+        {results.length > 0 && <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', sm: 'repeat(2,minmax(0,1fr))' }, gap: 1.25, mb: 2, maxHeight: 260, overflowY: 'auto' }}>
+          {results.map(item => <Paper key={item.instrumentToken} sx={{ minWidth: 0, p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, borderRadius: '8px' }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography fontWeight={800} sx={{ overflowWrap: 'anywhere' }}>{item.tradingsymbol}</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{item.sector || 'OTHER'} · {item.name || item.segment}</Typography>
+            </Box>
+            <Button size="small" variant="contained" onClick={() => addSymbol(item)} disabled={busy}>Add</Button>
+          </Paper>)}
+        </Box>}
+
+        <Stack direction="row" gap={1} flexWrap="wrap" mb={2.5}>
+          <Button variant="outlined" onClick={() => refresh()} disabled={busy}>Refresh</Button>
+          <Button variant="outlined" onClick={addSelected} disabled={!marketDataReady || hasSyncedSymbols !== true || !selected || busy}>{selected ? 'Add ' + selected.tradingsymbol : 'Select a symbol above'}</Button>
+          {groups.map(group => <Button key={group} variant="outlined" size="small" onClick={() => addGroup(group)} disabled={!marketDataReady || hasSyncedSymbols !== true || busy}>{group === 'bank-nifty' ? 'Bank Nifty' : group.toUpperCase()}</Button>)}
+          {connected ? <Button color="error" variant="contained" onClick={() => toggle('/api/v1/live-market/stop')} disabled={busy}>Stop monitor</Button> : <Button variant="contained" onClick={() => toggle('/api/v1/live-market/start')} disabled={!marketDataReady || hasSyncedSymbols !== true || watchlist.length === 0 || busy}>{busy ? 'Working…' : 'Start monitor'}</Button>}
+        </Stack>
+
+        <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'repeat(2,minmax(0,1fr))' }, gap: 2, mb: 2.5 }}>
+          <Paper sx={{ minWidth: 0, p: 2, maxHeight: 360, overflowY: 'auto', borderRadius: '8px' }}>
+            <Typography variant="overline" color="text.secondary">WATCHLIST · {watchlist.length}/{status?.maxSupportedInstruments || 50} SYMBOLS</Typography>
+            {watchlist.length === 0 ? <Typography variant="body2" color="text.secondary" mt={1}>No active symbols for this NSE session.</Typography> : <Stack divider={<Divider flexItem />} mt={1}>{watchlist.map(item => <Stack key={item.instrumentToken} direction="row" justifyContent="space-between" alignItems="center" py={1} gap={1}><Box sx={{ minWidth: 0 }}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{item.symbol}</Typography><Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{status?.latestPrices?.[item.instrumentToken] ? money(status.latestPrices[item.instrumentToken]) + ' · ' + (status.lastTickAt ? new Date(status.lastTickAt).toLocaleTimeString() : 'tick') : 'Waiting for first tick'}</Typography></Box><Button size="small" color="error" onClick={() => removeSymbol(item.instrumentToken, item.symbol)} disabled={busy || connected}>Remove</Button></Stack>)}</Stack>}
+          </Paper>
+
+          <Paper sx={{ minWidth: 0, p: 2, maxHeight: 360, overflowY: 'auto', borderRadius: '8px' }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}><Typography variant="overline" color="text.secondary">ACTIONABLE WATCH SIGNALS · THIS SESSION</Typography><Typography variant="caption" color="text.secondary">{signalsPage.totalElements || 0} total</Typography></Stack>
+            {signalsPage.items.length === 0 ? <Typography variant="body2" color="text.secondary" mt={1}>{connected ? 'No WATCH LONG or WATCH SHORT setup yet.' : 'Start the monitor after adding symbols.'}</Typography> : <Stack gap={1} mt={1}>{signalsPage.items.map(signal => <Paper key={signal.instrumentToken + '-' + signal.candleStart} sx={evaluationPaperSx(signal.type)}><Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}><Typography fontWeight={800} sx={{ overflowWrap: 'anywhere' }}>{signal.symbol}</Typography><Chip size="small" label={evaluationLabel(signal.type)} color={evaluationColor(signal.type)} /></Stack><Typography variant="caption" color="text.secondary">{money(signal.referencePrice)} · {time(signal.candleStart)}</Typography></Paper>)}</Stack>}
+            {signalsPage.totalPages > 1 && <Pagination sx={{ mt: 1 }} size="small" count={signalsPage.totalPages} page={signalsPage.page + 1} onChange={(_, value) => refresh(value - 1, candlesPage.page)} disabled={busy} />}
+          </Paper>
+        </Box>
+
+        <Paper sx={{ minWidth: 0, p: 2, mb: 2.5, borderRadius: '8px', overflow: 'hidden' }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={.75} mb={1}>
+            <Box><Typography variant="overline" color="text.secondary">LIVE EVALUATIONS · THIS SESSION</Typography><Typography variant="caption" display="block" color="text.secondary">{candlesPage.totalElements ? candlesPage.totalElements + ' completed evaluations' : 'No completed candle evaluation in this run'}</Typography></Box>
+            <Chip size="small" label="NO TRADE · WATCH LONG · WATCH SHORT" variant="outlined" />
+          </Stack>
+          {candlesPage.items.length === 0 ? <Typography variant="body2" color="text.secondary">A row appears after a completed five-minute candle is received for an active symbol.</Typography> : <TableContainer sx={{ maxHeight: 390, overflowX: 'auto' }}><Table stickyHeader size="small"><TableHead><TableRow>{['Symbol / time', 'OHLC', 'Volume', 'Evaluation', 'VWAP', 'Why'].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{candlesPage.items.map((candle, index) => <TableRow hover key={candle.instrumentToken + '-' + candle.candleStart + '-' + index}><TableCell sx={{ whiteSpace: 'nowrap' }}><Typography fontWeight={800}>{candle.symbol}</Typography><Typography variant="caption" color="text.secondary">{time(candle.candleStart)}</Typography></TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{money(candle.open)} / {money(candle.high)} / {money(candle.low)} / {money(candle.close)}</TableCell><TableCell>{Number(candle.volume || 0).toLocaleString()}</TableCell><TableCell><Chip size="small" label={evaluationLabel(candle.evaluationType)} color={evaluationColor(candle.evaluationType)} variant={candle.evaluationType === 'NO_TRADE' || candle.evaluationType === 'WARMING_UP' ? 'outlined' : 'filled'} /></TableCell><TableCell>{candle.vwap ? money(candle.vwap) : '—'}</TableCell><TableCell sx={{ minWidth: 220, maxWidth: 360, whiteSpace: 'normal' }}>{candle.reasons || '—'}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}
+          {candlesPage.totalPages > 1 && <Stack alignItems="center" mt={1.5}><Pagination size="small" count={candlesPage.totalPages} page={candlesPage.page + 1} onChange={(_, value) => refresh(signalsPage.page, value - 1)} disabled={busy} /></Stack>}
+        </Paper>
+
+        {status?.lastError && <Alert severity="error" sx={{ mb: 2 }}>{status.lastError}</Alert>}
+        <Alert severity="info" action={<Button size="small" onClick={onOpenMonitorHistory}>Open history</Button>}>The server clears this watchlist and these current-session evaluations at the NSE session boundary. Monitor history retains only WATCH LONG and WATCH SHORT for seven days.</Alert>
+      </CardContent>
+    </Card>
   </ThemeProvider>
 }
 
 function MonitorHistoryMUI({ notify }) {
   const emptyPage = { items: [], page: 0, pageSize: 10, totalElements: 0, totalPages: 0 }
-  const [history, setHistory] = useState({ days: 7, signals: emptyPage, candles: emptyPage })
+  const [history, setHistory] = useState({ days: 7, watchSetups: emptyPage })
   const [loading, setLoading] = useState(false)
 
-  async function load(signalPage = history.signals.page, candlePage = history.candles.page) {
+  async function load(page = (history.watchSetups || emptyPage).page) {
     setLoading(true)
     try {
-      const response = await apiFetch(`/api/v1/live-market/history/page?days=7&signalPage=${signalPage}&candlePage=${candlePage}&pageSize=10`)
+      const response = await apiFetch('/api/v1/live-market/history/page?days=7&page=' + page + '&pageSize=10')
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || 'Monitor history could not be loaded')
       setHistory(data)
-    } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setLoading(false) }
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { load(0, 0) }, [])
-  const signals = history.signals || emptyPage
-  const candles = history.candles || emptyPage
-  const pagination = (page, onChange) => <Pagination color="primary" size="small" count={Math.max(1, page.totalPages || 0)} page={page.page + 1} onChange={(_, value) => onChange(value - 1)} disabled={loading || page.totalPages <= 1} />
+  useEffect(() => { load(0) }, [])
+  const page = history.watchSetups || emptyPage
+  const label = type => type === 'WATCH_LONG' ? 'WATCH LONG' : 'WATCH SHORT'
+  const time = value => value ? new Date(value).toLocaleString() : '—'
 
   return <Box sx={{ minWidth: 0, display: 'grid', gap: 2.5 }}>
-    <Card sx={pageCardSx}><CardContent sx={{ p: { xs: 2, md: 3 } }}>
-      <PageHeading eyebrow="READ-ONLY RETENTION" title="Monitor history" description="Actionable WATCH LONG and WATCH SHORT results from the last seven days are retained here. The live monitor shows only the current NSE session; older rows are archived automatically." action={<Button variant="outlined" onClick={() => load()} disabled={loading}>↻ Refresh</Button>} />
-      <Alert severity="info" sx={{ mb: 2 }}>Yesterday’s watchlist cannot appear in today’s live state. Use this page to review the actionable setups collected during recent sessions.</Alert>
-      {loading && <LinearProgress sx={{ mb: 2 }} />}
-      <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', lg: 'minmax(0,1fr) minmax(0,1.3fr)' }, gap: 2 }}>
-        <Paper sx={{ minWidth: 0, p: 2, ...insetSx }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} mb={1.5}><Box><Typography variant="overline" color="text.secondary">WATCH SIGNALS · LAST 7 DAYS</Typography><Typography variant="h6">{signals.totalElements} recorded</Typography></Box><Chip label={`Page ${signals.page + 1}/${Math.max(1, signals.totalPages || 0)}`} size="small" /></Stack>
-          {signals.items.length === 0 ? <Typography variant="body2" color="text.secondary">No watch signal history in the retention window.</Typography> : <Stack gap={1}>{signals.items.map((signal, index) => <Paper key={`${signal.instrumentToken}-${signal.candleStart}-${index}`} sx={{ p: 1.35, borderRadius: '8px', borderLeft: `4px solid ${signal.type === 'WATCH_LONG' ? '#16866f' : '#c54b57'}`, bgcolor: signal.type === 'WATCH_LONG' ? 'rgba(218,247,237,.72)' : 'rgba(255,231,233,.76)' }}><Stack direction="row" justifyContent="space-between" gap={1} alignItems="center"><Typography fontWeight={800}>{signal.symbol}</Typography><Chip size="small" label={signal.type === 'WATCH_LONG' ? 'WATCH LONG' : 'WATCH SHORT'} color={signal.type === 'WATCH_LONG' ? 'success' : 'error'} /></Stack><Typography variant="caption" color="text.secondary" display="block" mt={.45}>{new Date(signal.candleStart).toLocaleString()} · Reference {money(signal.referencePrice)} · VWAP {signal.vwap ? money(signal.vwap) : '—'}</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .4, overflowWrap: 'anywhere' }}>{signal.reasons}</Typography></Paper>)}</Stack>}
-          <Stack alignItems="center" mt={1.5}>{pagination(signals, value => load(value, candles.page))}</Stack>
+    <Card className="monitor-history" sx={pageCardSx}>
+      <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+        <PageHeading eyebrow="READ-ONLY RETENTION" title="Monitor history" description="Only actionable WATCH LONG and WATCH SHORT setups are retained for the last seven days. The live monitor is session-scoped and is cleared at the NSE close." action={<Button variant="outlined" onClick={() => load()} disabled={loading}>↻ Refresh</Button>} />
+        <Alert severity="info" sx={{ mb: 2 }}>This is the single historical view. NO TRADE rows stay on the live-monitor page and are not copied into history.</Alert>
+        {loading && <LinearProgress sx={{ mb: 2 }} />}
+        <Paper sx={{ minWidth: 0, p: { xs: 1, sm: 2 }, ...insetSx, borderRadius: '8px', overflow: 'hidden' }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={1} mb={1.5}>
+            <Box><Typography variant="overline" color="text.secondary">WATCH SETUPS · LAST 7 DAYS</Typography><Typography variant="h6">{page.totalElements || 0} recorded</Typography></Box>
+            <Chip label={'Page ' + (page.page + 1) + '/' + Math.max(1, page.totalPages || 0)} size="small" />
+          </Stack>
+          {page.items.length === 0 ? <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>No actionable watch setup history in the retention window.</Typography> : <TableContainer sx={{ maxHeight: 540, overflowX: 'auto' }}><Table stickyHeader size="small"><TableHead><TableRow>{['Symbol / time', 'Direction', 'OHLC', 'Volume', 'Reference / VWAP', 'Setup'].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{page.items.map((candle, index) => <TableRow hover key={candle.instrumentToken + '-' + candle.candleStart + '-' + index}><TableCell sx={{ whiteSpace: 'nowrap' }}><Typography fontWeight={800}>{candle.symbol}</Typography><Typography variant="caption" color="text.secondary">{time(candle.candleStart)}</Typography></TableCell><TableCell><Chip size="small" label={label(candle.evaluationType)} color={candle.evaluationType === 'WATCH_LONG' ? 'success' : 'error'} /></TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{money(candle.open)} / {money(candle.high)} / {money(candle.low)} / {money(candle.close)}</TableCell><TableCell>{Number(candle.volume || 0).toLocaleString()}</TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{money(candle.referencePrice)}<Typography variant="caption" display="block" color="text.secondary">VWAP {candle.vwap ? money(candle.vwap) : '—'}</Typography></TableCell><TableCell sx={{ minWidth: 240, maxWidth: 420, whiteSpace: 'normal' }}>{candle.reasons || '—'}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}
+          {page.totalPages > 1 && <Stack alignItems="center" mt={1.5}><Pagination color="primary" size="small" count={page.totalPages} page={page.page + 1} onChange={(_, value) => load(value - 1)} disabled={loading} /></Stack>}
         </Paper>
-        <Paper sx={{ minWidth: 0, p: 2, ...insetSx }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} mb={1.5}><Box><Typography variant="overline" color="text.secondary">WATCH SETUPS · LAST 7 DAYS</Typography><Typography variant="h6">{candles.totalElements} recorded</Typography></Box><Chip label={`Page ${candles.page + 1}/${Math.max(1, candles.totalPages || 0)}`} size="small" /></Stack>
-          {candles.items.length === 0 ? <Typography variant="body2" color="text.secondary">No watch setup history in the retention window.</Typography> : <TableContainer sx={{ maxHeight: 420, overflowX: 'auto' }}><Table stickyHeader size="small"><TableHead><TableRow>{['Symbol / time', 'OHLC', 'Volume', 'Signal', 'VWAP'].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{candles.items.map((candle, index) => <TableRow hover key={`${candle.instrumentToken}-${candle.candleStart}-${index}`}><TableCell sx={{ whiteSpace: 'nowrap' }}><Typography fontWeight={800}>{candle.symbol}</Typography><Typography variant="caption" color="text.secondary">{new Date(candle.candleStart).toLocaleString()}</Typography></TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{money(candle.open)} / {money(candle.high)} / {money(candle.low)} / {money(candle.close)}</TableCell><TableCell>{Number(candle.volume || 0).toLocaleString()}</TableCell><TableCell><Chip size="small" label={candle.evaluationType === 'WATCH_LONG' ? 'WATCH LONG' : 'WATCH SHORT'} color={candle.evaluationType === 'WATCH_LONG' ? 'success' : 'error'} variant="outlined" /></TableCell><TableCell>{candle.vwap ? money(candle.vwap) : '—'}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}
-          <Stack alignItems="center" mt={1.5}>{pagination(candles, value => load(signals.page, value))}</Stack>
-        </Paper>
-      </Box>
-    </CardContent></Card>
+      </CardContent>
+    </Card>
   </Box>
 }
 

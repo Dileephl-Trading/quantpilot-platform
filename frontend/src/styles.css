@@ -253,3 +253,10 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
 .integration-page table { min-width: 680px; }
 .integration-page .candle-table-wrap { max-height: 360px; overflow: auto; }
 .integration-page .live-card { overflow: hidden; }
+
+/* MUI controls use a real menu instead of the browser-native select popup. */
+.app-shell .MuiSelect-select { cursor: pointer; display: flex; align-items: center; }
+.app-shell .MuiSelect-icon { pointer-events: none; }
+.app-shell .MuiMenu-paper { border-radius: 8px; max-height: min(50vh, 360px); }
+.live-card .MuiTableContainer-root,
+.monitor-history .MuiTableContainer-root { border-radius: 6px; }
