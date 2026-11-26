@@ -53,6 +53,7 @@ public class LiveMarketService {
     private final FiveMinuteCandleAggregator aggregator;
     private final ScannerProperties scannerProperties;
     private final AutomatedExecutionService automatedExecution;
+    private final SignalVerificationService verificationService;
     private final KiteConnectProperties kiteProperties;
     private static final int MAX_PAGE_SIZE = 50;
     private final Map<Long, String> symbolsByToken = new HashMap<>();
@@ -69,7 +70,7 @@ public class LiveMarketService {
                              LiveSignalRepository signalRepository, LiveCandleRepository candleRepository,
                              MarketSessionService marketSessionService, SignalEngine signalEngine,
                              ScannerProperties scannerProperties, AutomatedExecutionService automatedExecution,
-                             KiteConnectProperties kiteProperties) {
+                             SignalVerificationService verificationService, KiteConnectProperties kiteProperties) {
         this.liveFeed = liveFeed; this.marketDataProvider = marketDataProvider;
         this.instrumentRepository = instrumentRepository; this.watchlistRepository = watchlistRepository;
         this.signalRepository = signalRepository; this.candleRepository = candleRepository;
@@ -77,6 +78,7 @@ public class LiveMarketService {
         this.signalEngine = signalEngine;
         this.scannerProperties = scannerProperties;
         this.automatedExecution = automatedExecution;
+        this.verificationService = verificationService;
         this.kiteProperties = kiteProperties;
         this.aggregator = new FiveMinuteCandleAggregator(scannerProperties.getCandleInterval().candleDuration());
     }
@@ -303,6 +305,11 @@ public class LiveMarketService {
         int safePageSize = Math.max(1, Math.min(pageSize, MAX_PAGE_SIZE));
         return PagedResponse.from(candleRepository.findByGeneratedAtGreaterThanEqualOrderByGeneratedAtDesc(
                 sessionStart(), PageRequest.of(safePage, safePageSize)), LiveCandleView::from);
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<SignalVerificationView> verificationPage(int days, int page, int pageSize) {
+        return verificationService.page(days, page, pageSize);
     }
 
     @Transactional(readOnly = true)

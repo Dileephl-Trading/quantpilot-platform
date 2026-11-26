@@ -14,6 +14,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
@@ -98,6 +101,45 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
         return List.copyOf(positions);
     }
 
+    @Override public List<BrokerTrade> trades(String orderId) {
+        requireRoutingEnabled();
+        if (orderId == null || orderId.isBlank()) return List.of();
+        JsonNode data = send("GET", "/orders/" + encode(orderId) + "/trades", "");
+        if (!data.isArray()) return List.of();
+        List<BrokerTrade> trades = new ArrayList<>();
+        for (JsonNode row : data) {
+            String tradeId = row.path("trade_id").asText("");
+            long quantity = row.path("quantity").asLong(0);
+            BigDecimal price = decimalOrNull(row.path("average_price"));
+            if (tradeId.isBlank() || quantity <= 0 || price == null || price.signum() <= 0) continue;
+            OrderSide side = "BUY".equalsIgnoreCase(row.path("transaction_type").asText())
+                    ? OrderSide.BUY : OrderSide.SELL;
+            trades.add(new BrokerTrade(tradeId, row.path("order_id").asText(orderId),
+                    row.path("tradingsymbol").asText(""), side, quantity, price,
+                    parseTimestamp(row.path("fill_timestamp").asText(null))));
+        }
+        return List.copyOf(trades);
+    }
+
+    @Override public List<BrokerDayPosition> dayPositions() {
+        requireRoutingEnabled();
+        JsonNode data = send("GET", "/portfolio/positions", "");
+        JsonNode day = data.path("day");
+        if (!day.isArray()) return List.of();
+        List<BrokerDayPosition> positions = new ArrayList<>();
+        for (JsonNode row : day) {
+            String symbol = row.path("tradingsymbol").asText("");
+            if (symbol.isBlank()) continue;
+            positions.add(new BrokerDayPosition(symbol, row.path("exchange").asText("NSE"),
+                    row.path("product").asText("MIS"), row.path("quantity").asLong(0),
+                    row.path("buy_quantity").asLong(0), decimalOrNull(row.path("buy_price")),
+                    row.path("sell_quantity").asLong(0), decimalOrNull(row.path("sell_price")),
+                    decimalOrNull(row.path("realised")), decimalOrNull(row.path("unrealised")),
+                    decimalOrNull(row.path("pnl"))));
+        }
+        return List.copyOf(positions);
+    }
+
     @Override public List<BrokerOrderResponse> squareOffPositions() {
         requireRoutingEnabled();
         JsonNode data = send("GET", "/portfolio/positions", "");
@@ -113,7 +155,8 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
             String exchange = row.path("exchange").asText("NSE");
             String body = "exchange=" + encode(exchange) + "&tradingsymbol=" + encode(symbol)
                     + "&transaction_type=" + side.name() + "&order_type=MARKET&quantity="
-                    + Math.abs(netQuantity) + "&product=" + encode(product) + "&validity=DAY";
+                    + Math.abs(netQuantity) + "&product=" + encode(product) + "&validity=DAY"
+                    + "&market_protection=-1";
             JsonNode response = send("POST", "/orders/regular", body);
             String orderId = response.path("order_id").asText("");
             if (!orderId.isBlank()) {
@@ -175,12 +218,27 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
             add(fields, "price", r.price().toPlainString());
         }
         if (r.triggerPrice() != null) add(fields, "trigger_price", r.triggerPrice().toPlainString());
+        if ("MARKET".equals(orderType) || "SL-M".equals(orderType)) {
+            add(fields, "market_protection", "-1");
+        }
         return String.join("&", fields);
     }
     private void add(List<String> f, String key, String value) { f.add(encode(key) + "=" + encode(value)); }
     private String encode(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
     private String defaultValue(String value, String fallback) { return value == null || value.isBlank() ? fallback : value; }
     private BigDecimal decimalOrNull(JsonNode node) { return node == null || node.isMissingNode() || node.isNull() ? null : node.decimalValue(); }
+    private OffsetDateTime parseTimestamp(String value) {
+        if (value == null || value.isBlank()) return now();
+        try { return OffsetDateTime.parse(value).withOffsetSameInstant(INDIA); }
+        catch (DateTimeParseException ignored) { }
+        for (DateTimeFormatter formatter : List.of(
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))) {
+            try { return LocalDateTime.parse(value, formatter).atOffset(INDIA); }
+            catch (DateTimeParseException ignored) { }
+        }
+        return now();
+    }
     private OffsetDateTime now() { return OffsetDateTime.now(INDIA); }
     private void requireRoutingEnabled() { if (!properties.isOrderRoutingEnabled()) throw new IllegalStateException("Kite order routing is disabled by configuration"); }
     private void validate(BrokerOrderRequest r) {

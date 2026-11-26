@@ -63,6 +63,14 @@ public class LiveMarketController {
             @RequestParam(defaultValue = "10") int pageSize) {
         return ResponseEntity.ok(liveMarketService.currentCandlesPage(page, pageSize));
     }
+    @GetMapping("/verifications/page")
+    public ResponseEntity<PagedResponse<com.dileephl.marketscanner.live.SignalVerificationView>> verificationPage(
+            @RequestParam(defaultValue = "7") int days,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int pageSize) {
+        return ResponseEntity.ok(liveMarketService.verificationPage(days, page, pageSize));
+    }
+
     @GetMapping("/history")
     public ResponseEntity<Map<String, Object>> history(@RequestParam(defaultValue = "7") int days) {
         return ResponseEntity.ok(Map.of(

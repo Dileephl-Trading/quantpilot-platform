@@ -63,6 +63,13 @@ function money(value) {
   }).format(Number(value || 0))
 }
 
+function moneyPrecise(value) {
+  if (value === null || value === undefined || value === '') return '—'
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2
+  }).format(Number(value))
+}
+
 // Google Material Symbols' query_stats mark is embedded locally so the logo
 // remains available even when external font requests are blocked by CSP.
 function QuantPilotMark({ size = 'small' }) {
@@ -279,12 +286,14 @@ function App() {
           <MenuItem active={active === 'risk'} onClick={() => setActive('risk')} icon="◈">Risk preview</MenuItem>
           <MenuItem active={active === 'execution'} onClick={() => setActive('execution')} icon="⇄">Execution</MenuItem>
         </MenuGroup>
-        <MenuGroup label="Records" icon="▤" open={openGroups.records} active={active === 'audit' || active === 'journal'} onToggle={() => toggleGroup('records')}>
+        <MenuGroup label="Records" icon="▤" open={openGroups.records} active={active === 'audit' || active === 'journal' || active === 'placedOrders'} onToggle={() => toggleGroup('records')}>
           <MenuItem active={active === 'audit'} onClick={() => setActive('audit')} icon="▥">Audit log</MenuItem>
           <MenuItem active={active === 'journal'} onClick={() => setActive('journal')} icon="▤">Trade journal</MenuItem>
+          <MenuItem active={active === 'placedOrders'} onClick={() => setActive('placedOrders')} icon="▣">Placed orders</MenuItem>
         </MenuGroup>
-        <MenuGroup label="Market data" icon="◌" open={openGroups.market} active={active === 'integration' || active === 'monitorHistory'} onToggle={() => toggleGroup('market')}>
+        <MenuGroup label="Market data" icon="◌" open={openGroups.market} active={active === 'integration' || active === 'signalChecks' || active === 'monitorHistory'} onToggle={() => toggleGroup('market')}>
           <MenuItem active={active === 'integration'} onClick={() => setActive('integration')} icon="◌">Connection & data</MenuItem>
+          <MenuItem active={active === 'signalChecks'} onClick={() => setActive('signalChecks')} icon="✓">Signal checks</MenuItem>
           <MenuItem active={active === 'monitorHistory'} onClick={() => setActive('monitorHistory')} icon="◴">Monitor history</MenuItem>
         </MenuGroup>
         <MenuGroup label="Configuration" icon="⚙" open={openGroups.configuration} active={active === 'settings'} onToggle={() => toggleGroup('configuration')}>
@@ -302,7 +311,7 @@ function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">{profile?.mode === 'LIVE' ? 'LIVE TRADING WORKSPACE' : profile?.mode === 'DRY_RUN' ? 'DRY-RUN WORKSPACE' : 'PAPER TRADING WORKSPACE'}</p>
-          <h1>{active === 'settings' ? 'Trading profile' : active === 'risk' ? 'Risk preview' : active === 'execution' ? 'Order execution' : active === 'audit' ? 'Audit log' : active === 'journal' ? 'Trade journal' : active === 'integration' ? 'Market-data connection' : active === 'monitorHistory' ? 'Monitor history' : profile?.mode === 'LIVE' ? 'Live trading overview' : profile?.mode === 'DRY_RUN' ? 'Dry-run overview' : 'Paper trading overview'}</h1>
+          <h1>{active === 'settings' ? 'Trading profile' : active === 'risk' ? 'Risk preview' : active === 'execution' ? 'Order execution' : active === 'audit' ? 'Audit log' : active === 'journal' ? 'Trade journal' : active === 'placedOrders' ? 'Placed orders' : active === 'integration' ? 'Market-data connection' : active === 'signalChecks' ? 'Signal checks' : active === 'monitorHistory' ? 'Monitor history' : profile?.mode === 'LIVE' ? 'Live trading overview' : profile?.mode === 'DRY_RUN' ? 'Dry-run overview' : 'Paper trading overview'}</h1>
         </div>
         <div className="topbar-status">
           <div className="connection"><span className={loading ? 'status-dot amber' : 'status-dot'} /> {loading ? 'Connecting to API' : 'API connected'}</div>
@@ -325,7 +334,11 @@ function App() {
 
         {active === 'journal' && <JournalMUI notify={setNotice} />}
 
+        {active === 'placedOrders' && <PlacedOrdersMUI notify={setNotice} />}
+
         {active === 'integration' && <KiteIntegration status={kiteStatus} refresh={loadKiteStatus} notify={setNotice} onOpenMonitorHistory={() => setActive('monitorHistory')} />}
+
+        {active === 'signalChecks' && <SignalChecksMUI notify={setNotice} />}
 
         {active === 'monitorHistory' && <MonitorHistoryMUI notify={setNotice} />}
 
@@ -1143,6 +1156,214 @@ function MonitorHistoryMUI({ notify }) {
       </CardContent>
     </Card>
   </Box>
+}
+
+
+function decisionColor(decision) {
+  if (decision === 'ORDER_SUBMITTED' || decision === 'PASSED') return 'success'
+  if (decision === 'BLOCKED') return 'warning'
+  if (decision === 'ORDER_UNCERTAIN') return 'error'
+  return 'info'
+}
+
+function decisionLabel(decision) {
+  return String(decision || 'RECEIVED').replaceAll('_', ' ')
+}
+
+function SignalChecksMUI({ notify }) {
+  const emptyPage = { items: [], page: 0, pageSize: 10, totalElements: 0, totalPages: 0 }
+  const [state, setState] = useState(emptyPage)
+  const [loading, setLoading] = useState(false)
+
+  async function load(page = state.page) {
+    setLoading(true)
+    try {
+      const response = await apiFetch('/api/v1/live-market/verifications/page?days=7&page=' + page + '&pageSize=10')
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'Signal checks could not be loaded')
+      setState(data)
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load(0) }, [])
+
+  return <Card sx={pageCardSx}>
+    <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+      <PageHeading
+        eyebrow="SECOND-LAYER REVIEW · LAST 7 DAYS"
+        title="Signal checks"
+        description="Every WATCH LONG and WATCH SHORT signal is recorded here with the execution preflight, risk result, and final order decision."
+        action={<Button variant="outlined" onClick={() => load()} disabled={loading}>↻ Refresh</Button>}
+      />
+      <Alert severity="info" sx={{ mb: 2 }}>This page is an audit of the second check. A profitable or blocked result is not a guarantee; the final broker status remains authoritative.</Alert>
+      {loading && <LinearProgress sx={{ mb: 2 }} />}
+      {state.items.length === 0 ? <Paper sx={{ ...insetSx, p: 3, borderRadius: '8px' }}><Typography color="text.secondary">No WATCH LONG or WATCH SHORT verification has been recorded in the last seven days.</Typography></Paper> :
+        <Stack gap={1.5}>
+          {state.items.map(item => <Paper key={item.id} sx={{ p: { xs: 1.5, sm: 2 }, borderRadius: '8px', borderLeft: '4px solid', borderLeftColor: item.signalType === 'WATCH_LONG' ? '#16866f' : '#c54b57' }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={1}>
+              <Box sx={{ minWidth: 0 }}>
+                <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+                  <Typography fontWeight={850}>{item.symbol}</Typography>
+                  <Chip size="small" label={item.signalType === 'WATCH_LONG' ? 'WATCH LONG' : 'WATCH SHORT'} color={item.signalType === 'WATCH_LONG' ? 'success' : 'error'} />
+                </Stack>
+                <Typography variant="caption" color="text.secondary">{item.candleStart ? new Date(item.candleStart).toLocaleString() : '—'}</Typography>
+              </Box>
+              <Chip size="small" label={decisionLabel(item.decision)} color={decisionColor(item.decision)} />
+            </Stack>
+            <Stack direction="row" gap={.75} flexWrap="wrap" mt={1.25}>
+              <Chip size="small" variant="outlined" label={'Reference ' + money(item.referencePrice)} />
+              <Chip size="small" variant="outlined" label={'VWAP ' + money(item.vwap)} />
+              <Chip size="small" variant="outlined" label={'Invalidation ' + money(item.invalidationReference)} />
+              {item.orderId && <Chip size="small" color="primary" variant="outlined" label={'Order ' + item.orderId} />}
+            </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, mt: 1.25 }}>{item.analysis || 'No detailed analysis recorded.'}</Typography>
+          </Paper>)}
+        </Stack>}
+      {state.totalPages > 1 && <Stack alignItems="center" mt={2}><Pagination color="primary" count={state.totalPages} page={state.page + 1} onChange={(_, value) => load(value - 1)} disabled={loading} /></Stack>}
+    </CardContent>
+  </Card>
+}
+
+function orderStatusColor(status) {
+  if (status === 'COMPLETE') return 'success'
+  if (status === 'REJECTED' || status === 'CANCELLED' || status === 'UNKNOWN') return 'error'
+  if (status === 'PARTIALLY_FILLED') return 'warning'
+  return 'info'
+}
+
+function lifecycleValue(value, fallback = '—') {
+  return value === null || value === undefined || value === '' ? fallback : value
+}
+
+function LifecyclePanel({ title, subtitle, status, children, accent }) {
+  return <Paper sx={{ p: { xs: 1.5, md: 2 }, borderRadius: '8px', border: '1px solid rgba(108, 128, 158, .2)', borderTop: `3px solid ${accent}`, background: 'rgba(246, 249, 255, .78)' }}>
+    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1} mb={1.2}>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: '.12em', lineHeight: 1.2 }}>{title}</Typography>
+        {subtitle && <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: .35 }}>{subtitle}</Typography>}
+      </Box>
+      <Chip size="small" label={lifecycleValue(status, 'NOT CREATED')} color={orderStatusColor(status)} variant={status === 'COMPLETE' ? 'filled' : 'outlined'} />
+    </Stack>
+    <Stack gap={.75}>{children}</Stack>
+  </Paper>
+}
+
+function LifecycleLine({ label, value, emphasis = false }) {
+  return <Stack direction="row" justifyContent="space-between" alignItems="baseline" gap={1} sx={{ minWidth: 0 }}>
+    <Typography variant="body2" color="text.secondary" sx={{ flex: '0 1 auto' }}>{label}</Typography>
+    <Typography variant="body2" fontWeight={emphasis ? 850 : 700} sx={{ textAlign: 'right', overflowWrap: 'anywhere' }}>{lifecycleValue(value)}</Typography>
+  </Stack>
+}
+
+function PlacedOrdersMUI({ notify }) {
+  const emptyPage = { items: [], page: 0, pageSize: 10, totalElements: 0, totalPages: 0 }
+  const [state, setState] = useState(emptyPage)
+  const [loading, setLoading] = useState(false)
+  const [reconciling, setReconciling] = useState(false)
+
+  async function load(page = state.page) {
+    setLoading(true)
+    try {
+      const response = await apiFetch('/api/v1/execution/orders/history/page?days=7&page=' + page + '&pageSize=10')
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'Placed orders could not be loaded')
+      setState(data)
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function reconcile() {
+    setReconciling(true)
+    try {
+      const response = await apiFetch('/api/v1/execution/orders/reconcile', { method: 'POST' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'Broker reconciliation could not be completed')
+      notify({ tone: 'success', text: 'Broker order statuses and fills reconciled.' })
+      await load(0)
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    } finally { setReconciling(false) }
+  }
+
+  useEffect(() => { load(0) }, [])
+
+  return <Card sx={pageCardSx}>
+    <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+      <PageHeading
+        eyebrow="BROKER ORDER TRAIL · LAST 7 DAYS"
+        title="Placed orders"
+        description="Each entry is grouped with its protective stop, target, exit fill, and realised P&L. Values are refreshed from the broker when available."
+        action={<Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ xs: 'stretch', sm: 'center' }}><Button variant="outlined" onClick={() => load()} disabled={loading || reconciling}>↻ Refresh</Button><Button variant="contained" onClick={reconcile} disabled={loading || reconciling}>{reconciling ? 'Reconciling…' : '↻ Reconcile broker'}</Button></Stack>}
+      />
+      <Alert severity="warning" sx={{ mb: 2 }}>Calculated P&L uses confirmed fills. Broker day P&L can include other trades for the same symbol, so verify final realised P&L and positions in Zerodha.</Alert>
+      {loading && <LinearProgress sx={{ mb: 2 }} />}
+      {state.items.length === 0 ? <Paper sx={{ ...insetSx, p: 3, borderRadius: '8px' }}><Typography color="text.secondary">No placed orders in the last seven days.</Typography></Paper> :
+        <Stack gap={1.75}>
+          {state.items.map(item => {
+            const pnl = item.realisedPnl == null ? null : Number(item.realisedPnl)
+            const brokerPnl = item.brokerRealisedPnl == null ? null : Number(item.brokerRealisedPnl)
+            const exitDone = item.exitFilledQuantity > 0 || item.exitAveragePrice != null
+            return <Paper key={item.orderId} sx={{ p: { xs: 1.5, sm: 2.2 }, borderRadius: '8px', border: '1px solid rgba(108, 128, 158, .24)', borderLeft: `4px solid ${pnl == null ? '#7b8799' : pnl >= 0 ? '#16866f' : '#c54b57'}`, boxShadow: '0 10px 24px rgba(43, 66, 99, .08)' }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={1.25}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+                    <Typography variant="h6" sx={{ overflowWrap: 'anywhere' }}>{item.symbol || 'Unknown symbol'}</Typography>
+                    <Chip size="small" label={item.entrySide || '—'} color={item.entrySide === 'BUY' ? 'success' : 'error'} variant="outlined" />
+                    <Chip size="small" label={item.entryStatus || 'UNKNOWN'} color={orderStatusColor(item.entryStatus)} />
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{item.createdAt ? new Date(item.createdAt).toLocaleString() : '—'} · Entry order {item.orderId}</Typography>
+                </Box>
+                <Box sx={{ textAlign: { xs: 'left', sm: 'right' }, flex: '0 0 auto' }}>
+                  <Typography variant="caption" color="text.secondary" display="block">Calculated realised P&L</Typography>
+                  <Typography variant="h6" fontWeight={900} color={pnl == null ? 'text.secondary' : pnl >= 0 ? 'success.main' : 'error.main'}>{pnl == null ? 'Pending exit' : moneyPrecise(pnl)}</Typography>
+                </Box>
+              </Stack>
+
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1.2, mt: 2 }}>
+                <LifecyclePanel title="ENTRY" subtitle={`${item.entrySide || '—'} · ${item.entryQuantity || 0} requested`} status={item.entryStatus} accent="#078f9f">
+                  <LifecycleLine label="Requested" value={moneyPrecise(item.entryRequestedPrice)} />
+                  <LifecycleLine label="Filled" value={`${item.entryFilledQuantity || 0} ${item.entryAveragePrice != null ? `@ ${moneyPrecise(item.entryAveragePrice)}` : ''}`} emphasis />
+                  <LifecycleLine label="Type" value={item.entryOrderType || '—'} />
+                </LifecyclePanel>
+                <LifecyclePanel title="PROTECTIVE STOP" subtitle={item.stopOrderId ? `Order ${item.stopOrderId}` : 'Created after entry fill'} status={item.stopStatus} accent="#c3831d">
+                  <LifecycleLine label="Trigger" value={moneyPrecise(item.stopTriggerPrice)} />
+                  <LifecycleLine label="Filled" value={`${item.stopFilledQuantity || 0} ${item.stopAveragePrice != null ? `@ ${moneyPrecise(item.stopAveragePrice)}` : ''}`} emphasis />
+                  <Typography variant="caption" color="text.secondary">A completed stop cancels the target.</Typography>
+                </LifecyclePanel>
+                <LifecyclePanel title="TARGET" subtitle={item.targetOrderId ? `Order ${item.targetOrderId}` : 'Created after entry fill'} status={item.targetStatus} accent="#6750a4">
+                  <LifecycleLine label="Limit" value={moneyPrecise(item.targetRequestedPrice)} />
+                  <LifecycleLine label="Filled" value={`${item.targetFilledQuantity || 0} ${item.targetAveragePrice != null ? `@ ${moneyPrecise(item.targetAveragePrice)}` : ''}`} emphasis />
+                  <Typography variant="caption" color="text.secondary">A completed target cancels the stop.</Typography>
+                </LifecyclePanel>
+              </Box>
+
+              <Paper sx={{ ...insetSx, p: { xs: 1.4, sm: 1.7 }, mt: 1.35, borderRadius: '8px', background: pnl == null ? 'rgba(102,119,147,.06)' : pnl >= 0 ? 'rgba(22,134,111,.08)' : 'rgba(197,75,87,.08)' }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1.5}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="overline" sx={{ letterSpacing: '.12em', color: 'text.secondary' }}>OUTCOME</Typography>
+                    <Typography variant="body2" fontWeight={750}>{exitDone ? `Exit filled quantity ${item.exitFilledQuantity || 0}` : 'Awaiting a protective exit fill'}</Typography>
+                    <Typography variant="caption" color="text.secondary">{item.exitCompletedAt ? `Completed ${new Date(item.exitCompletedAt).toLocaleString()}` : 'No final exit timestamp yet'}</Typography>
+                  </Box>
+                  <Stack direction="row" gap={2.5} flexWrap="wrap" sx={{ alignItems: 'flex-start' }}>
+                    <Box><Typography variant="caption" color="text.secondary" display="block">Exit average</Typography><Typography fontWeight={850}>{moneyPrecise(item.exitAveragePrice)}</Typography></Box>
+                    <Box><Typography variant="caption" color="text.secondary" display="block">Broker day P&L</Typography><Typography fontWeight={850} color={brokerPnl == null ? 'text.secondary' : brokerPnl >= 0 ? 'success.main' : 'error.main'}>{brokerPnl == null ? '—' : moneyPrecise(brokerPnl)}</Typography><Typography variant="caption" color="text.secondary" display="block">{item.pnlSource === 'BROKER_POSITION' ? 'Kite position snapshot' : item.pnlSource === 'TRADE_FILLS' ? 'Confirmed fills' : 'Pending broker fill'}</Typography></Box>
+                  </Stack>
+                </Stack>
+              </Paper>
+              {item.message && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, overflowWrap: 'anywhere' }}>{item.message}</Typography>}
+            </Paper>
+          })}
+        </Stack>}
+      {state.totalPages > 1 && <Stack alignItems="center" mt={2}><Pagination color="primary" count={state.totalPages} page={state.page + 1} onChange={(_, value) => load(value - 1)} disabled={loading} /></Stack>}
+    </CardContent>
+  </Card>
 }
 
 function Journal({ notify }) {
