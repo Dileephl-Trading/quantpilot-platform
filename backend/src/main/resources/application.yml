@@ -48,6 +48,7 @@ scanner:
     enabled: ${AUTOMATED_EXECUTION_ENABLED:false}
     max-signal-age-seconds: ${AUTOMATED_MAX_SIGNAL_AGE_SECONDS:60}
     max-order-quantity: ${AUTOMATED_MAX_ORDER_QUANTITY:1}
+    target-risk-reward: ${AUTOMATED_TARGET_RISK_REWARD:2.0}
     order-type: ${AUTOMATED_ORDER_TYPE:LIMIT}
   strategy:
     enabled: ${SCANNER_STRATEGY_ENABLED:true}
