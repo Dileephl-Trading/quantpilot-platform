@@ -63,6 +63,13 @@ function money(value) {
   }).format(Number(value || 0))
 }
 
+function moneyPrecise(value) {
+  if (value === null || value === undefined || value === '') return '—'
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2
+  }).format(Number(value))
+}
+
 // Google Material Symbols' query_stats mark is embedded locally so the logo
 // remains available even when external font requests are blocked by CSP.
 function QuantPilotMark({ size = 'small' }) {
@@ -1228,15 +1235,40 @@ function orderStatusColor(status) {
   return 'info'
 }
 
+function lifecycleValue(value, fallback = '—') {
+  return value === null || value === undefined || value === '' ? fallback : value
+}
+
+function LifecyclePanel({ title, subtitle, status, children, accent }) {
+  return <Paper sx={{ p: { xs: 1.5, md: 2 }, borderRadius: '8px', border: '1px solid rgba(108, 128, 158, .2)', borderTop: `3px solid ${accent}`, background: 'rgba(246, 249, 255, .78)' }}>
+    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1} mb={1.2}>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: '.12em', lineHeight: 1.2 }}>{title}</Typography>
+        {subtitle && <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: .35 }}>{subtitle}</Typography>}
+      </Box>
+      <Chip size="small" label={lifecycleValue(status, 'NOT CREATED')} color={orderStatusColor(status)} variant={status === 'COMPLETE' ? 'filled' : 'outlined'} />
+    </Stack>
+    <Stack gap={.75}>{children}</Stack>
+  </Paper>
+}
+
+function LifecycleLine({ label, value, emphasis = false }) {
+  return <Stack direction="row" justifyContent="space-between" alignItems="baseline" gap={1} sx={{ minWidth: 0 }}>
+    <Typography variant="body2" color="text.secondary" sx={{ flex: '0 1 auto' }}>{label}</Typography>
+    <Typography variant="body2" fontWeight={emphasis ? 850 : 700} sx={{ textAlign: 'right', overflowWrap: 'anywhere' }}>{lifecycleValue(value)}</Typography>
+  </Stack>
+}
+
 function PlacedOrdersMUI({ notify }) {
   const emptyPage = { items: [], page: 0, pageSize: 10, totalElements: 0, totalPages: 0 }
   const [state, setState] = useState(emptyPage)
   const [loading, setLoading] = useState(false)
+  const [reconciling, setReconciling] = useState(false)
 
   async function load(page = state.page) {
     setLoading(true)
     try {
-      const response = await apiFetch('/api/v1/execution/orders/page?days=7&page=' + page + '&pageSize=10')
+      const response = await apiFetch('/api/v1/execution/orders/history/page?days=7&page=' + page + '&pageSize=10')
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || 'Placed orders could not be loaded')
       setState(data)
@@ -1247,6 +1279,19 @@ function PlacedOrdersMUI({ notify }) {
     }
   }
 
+  async function reconcile() {
+    setReconciling(true)
+    try {
+      const response = await apiFetch('/api/v1/execution/orders/reconcile', { method: 'POST' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'Broker reconciliation could not be completed')
+      notify({ tone: 'success', text: 'Broker order statuses and fills reconciled.' })
+      await load(0)
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    } finally { setReconciling(false) }
+  }
+
   useEffect(() => { load(0) }, [])
 
   return <Card sx={pageCardSx}>
@@ -1254,33 +1299,67 @@ function PlacedOrdersMUI({ notify }) {
       <PageHeading
         eyebrow="BROKER ORDER TRAIL · LAST 7 DAYS"
         title="Placed orders"
-        description="Entry, stop, and target orders are shown together so you can verify what was submitted, filled, rejected, or cancelled."
-        action={<Button variant="outlined" onClick={() => load()} disabled={loading}>↻ Refresh</Button>}
+        description="Each entry is grouped with its protective stop, target, exit fill, and realised P&L. Values are refreshed from the broker when available."
+        action={<Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ xs: 'stretch', sm: 'center' }}><Button variant="outlined" onClick={() => load()} disabled={loading || reconciling}>↻ Refresh</Button><Button variant="contained" onClick={reconcile} disabled={loading || reconciling}>{reconciling ? 'Reconciling…' : '↻ Reconcile broker'}</Button></Stack>}
       />
-      <Alert severity="warning" sx={{ mb: 2 }}>The application record is not a substitute for Zerodha's order book. Verify live fills and net positions at the broker.</Alert>
+      <Alert severity="warning" sx={{ mb: 2 }}>Calculated P&L uses confirmed fills. Broker day P&L can include other trades for the same symbol, so verify final realised P&L and positions in Zerodha.</Alert>
       {loading && <LinearProgress sx={{ mb: 2 }} />}
       {state.items.length === 0 ? <Paper sx={{ ...insetSx, p: 3, borderRadius: '8px' }}><Typography color="text.secondary">No placed orders in the last seven days.</Typography></Paper> :
-        <Stack gap={1.25}>
-          {state.items.map(item => <Paper key={item.orderId} sx={{ p: { xs: 1.5, sm: 2 }, borderRadius: '8px' }}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={1}>
-              <Box sx={{ minWidth: 0 }}>
-                <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
-                  <Typography fontWeight={850}>{item.symbol || 'Unknown symbol'}</Typography>
-                  <Chip size="small" label={item.protective ? (item.exitRole || 'EXIT') : 'ENTRY'} color={item.protective ? 'secondary' : 'primary'} variant="outlined" />
-                  <Chip size="small" label={item.status || 'UNKNOWN'} color={orderStatusColor(item.status)} />
-                </Stack>
-                <Typography variant="caption" color="text.secondary">{item.createdAt ? new Date(item.createdAt).toLocaleString() : '—'} · {item.orderId}</Typography>
+        <Stack gap={1.75}>
+          {state.items.map(item => {
+            const pnl = item.realisedPnl == null ? null : Number(item.realisedPnl)
+            const brokerPnl = item.brokerRealisedPnl == null ? null : Number(item.brokerRealisedPnl)
+            const exitDone = item.exitFilledQuantity > 0 || item.exitAveragePrice != null
+            return <Paper key={item.orderId} sx={{ p: { xs: 1.5, sm: 2.2 }, borderRadius: '8px', border: '1px solid rgba(108, 128, 158, .24)', borderLeft: `4px solid ${pnl == null ? '#7b8799' : pnl >= 0 ? '#16866f' : '#c54b57'}`, boxShadow: '0 10px 24px rgba(43, 66, 99, .08)' }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={1.25}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+                    <Typography variant="h6" sx={{ overflowWrap: 'anywhere' }}>{item.symbol || 'Unknown symbol'}</Typography>
+                    <Chip size="small" label={item.entrySide || '—'} color={item.entrySide === 'BUY' ? 'success' : 'error'} variant="outlined" />
+                    <Chip size="small" label={item.entryStatus || 'UNKNOWN'} color={orderStatusColor(item.entryStatus)} />
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{item.createdAt ? new Date(item.createdAt).toLocaleString() : '—'} · Entry order {item.orderId}</Typography>
+                </Box>
+                <Box sx={{ textAlign: { xs: 'left', sm: 'right' }, flex: '0 0 auto' }}>
+                  <Typography variant="caption" color="text.secondary" display="block">Calculated realised P&L</Typography>
+                  <Typography variant="h6" fontWeight={900} color={pnl == null ? 'text.secondary' : pnl >= 0 ? 'success.main' : 'error.main'}>{pnl == null ? 'Pending exit' : moneyPrecise(pnl)}</Typography>
+                </Box>
+              </Stack>
+
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1.2, mt: 2 }}>
+                <LifecyclePanel title="ENTRY" subtitle={`${item.entrySide || '—'} · ${item.entryQuantity || 0} requested`} status={item.entryStatus} accent="#078f9f">
+                  <LifecycleLine label="Requested" value={moneyPrecise(item.entryRequestedPrice)} />
+                  <LifecycleLine label="Filled" value={`${item.entryFilledQuantity || 0} ${item.entryAveragePrice != null ? `@ ${moneyPrecise(item.entryAveragePrice)}` : ''}`} emphasis />
+                  <LifecycleLine label="Type" value={item.entryOrderType || '—'} />
+                </LifecyclePanel>
+                <LifecyclePanel title="PROTECTIVE STOP" subtitle={item.stopOrderId ? `Order ${item.stopOrderId}` : 'Created after entry fill'} status={item.stopStatus} accent="#c3831d">
+                  <LifecycleLine label="Trigger" value={moneyPrecise(item.stopTriggerPrice)} />
+                  <LifecycleLine label="Filled" value={`${item.stopFilledQuantity || 0} ${item.stopAveragePrice != null ? `@ ${moneyPrecise(item.stopAveragePrice)}` : ''}`} emphasis />
+                  <Typography variant="caption" color="text.secondary">A completed stop cancels the target.</Typography>
+                </LifecyclePanel>
+                <LifecyclePanel title="TARGET" subtitle={item.targetOrderId ? `Order ${item.targetOrderId}` : 'Created after entry fill'} status={item.targetStatus} accent="#6750a4">
+                  <LifecycleLine label="Limit" value={moneyPrecise(item.targetRequestedPrice)} />
+                  <LifecycleLine label="Filled" value={`${item.targetFilledQuantity || 0} ${item.targetAveragePrice != null ? `@ ${moneyPrecise(item.targetAveragePrice)}` : ''}`} emphasis />
+                  <Typography variant="caption" color="text.secondary">A completed target cancels the stop.</Typography>
+                </LifecyclePanel>
               </Box>
-              <Typography fontWeight={850} className={item.side === 'BUY' ? 'buy' : 'sell'}>{item.side || '—'} {item.quantity}</Typography>
-            </Stack>
-            <Stack direction="row" gap={.75} flexWrap="wrap" mt={1.25}>
-              <Chip size="small" variant="outlined" label={'Type ' + (item.orderType || '—')} />
-              <Chip size="small" variant="outlined" label={'Requested ' + money(item.price)} />
-              <Chip size="small" variant="outlined" label={'Filled ' + (item.filledQuantity || 0) + (item.averagePrice ? ' @ ' + money(item.averagePrice) : '')} />
-              {item.parentOrderId && <Chip size="small" variant="outlined" label={'Parent ' + item.parentOrderId} />}
-            </Stack>
-            {item.message && <Typography variant="body2" color="text.secondary" mt={1}>{item.message}</Typography>}
-          </Paper>)}
+
+              <Paper sx={{ ...insetSx, p: { xs: 1.4, sm: 1.7 }, mt: 1.35, borderRadius: '8px', background: pnl == null ? 'rgba(102,119,147,.06)' : pnl >= 0 ? 'rgba(22,134,111,.08)' : 'rgba(197,75,87,.08)' }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1.5}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="overline" sx={{ letterSpacing: '.12em', color: 'text.secondary' }}>OUTCOME</Typography>
+                    <Typography variant="body2" fontWeight={750}>{exitDone ? `Exit filled quantity ${item.exitFilledQuantity || 0}` : 'Awaiting a protective exit fill'}</Typography>
+                    <Typography variant="caption" color="text.secondary">{item.exitCompletedAt ? `Completed ${new Date(item.exitCompletedAt).toLocaleString()}` : 'No final exit timestamp yet'}</Typography>
+                  </Box>
+                  <Stack direction="row" gap={2.5} flexWrap="wrap" sx={{ alignItems: 'flex-start' }}>
+                    <Box><Typography variant="caption" color="text.secondary" display="block">Exit average</Typography><Typography fontWeight={850}>{moneyPrecise(item.exitAveragePrice)}</Typography></Box>
+                    <Box><Typography variant="caption" color="text.secondary" display="block">Broker day P&L</Typography><Typography fontWeight={850} color={brokerPnl == null ? 'text.secondary' : brokerPnl >= 0 ? 'success.main' : 'error.main'}>{brokerPnl == null ? '—' : moneyPrecise(brokerPnl)}</Typography><Typography variant="caption" color="text.secondary" display="block">{item.pnlSource === 'BROKER_POSITION' ? 'Kite position snapshot' : item.pnlSource === 'TRADE_FILLS' ? 'Confirmed fills' : 'Pending broker fill'}</Typography></Box>
+                  </Stack>
+                </Stack>
+              </Paper>
+              {item.message && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, overflowWrap: 'anywhere' }}>{item.message}</Typography>}
+            </Paper>
+          })}
         </Stack>}
       {state.totalPages > 1 && <Stack alignItems="center" mt={2}><Pagination color="primary" count={state.totalPages} page={state.page + 1} onChange={(_, value) => load(value - 1)} disabled={loading} /></Stack>}
     </CardContent>

@@ -6,7 +6,6 @@ import com.dileephl.marketscanner.integration.zerodha.KiteConnectProperties;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 
 /** Polls broker orders because a local-only deployment cannot receive Kite postbacks. */
 @Service
@@ -28,13 +27,10 @@ public class ExecutionReconciliationService {
     public void pollOpenOrders() {
         if (profiles.current().mode() != TradingMode.LIVE || !properties.isOrderRoutingEnabled()
                 || !properties.hasApiKey() || !properties.hasApiSecret()) return;
-        List<ExecutionRequestEntity> open = requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED"));
-        for (ExecutionRequestEntity request : open) {
-            try {
-                execution.reconcile(request);
-            } catch (RuntimeException ignored) {
-                // A transient broker/network error must not stop the scheduler. The next poll retries it.
-            }
+        try {
+            execution.reconcileTrackedOrders();
+        } catch (RuntimeException ignored) {
+            // A transient broker/network error must not stop the scheduler. The next poll retries it.
         }
     }
 }

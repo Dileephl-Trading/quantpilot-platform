@@ -32,6 +32,7 @@ public class RetentionService {
             archiveSignals(cutoffTimestamp);
             archiveSignalVerifications(cutoffTimestamp);
             archiveExecutionRequests(cutoffTimestamp);
+            archiveExecutionTrades(cutoffTimestamp);
             archiveCandles(cutoffTimestamp);
         } catch (RuntimeException exception) {
             // A retention failure must not stop market-data ingestion or order safeguards.
@@ -73,16 +74,32 @@ public class RetentionService {
                     (id, idempotency_key, order_id, symbol, side, quantity, status, filled_quantity,
                      average_price, order_type, price, trigger_price, stop_price, request_fingerprint,
                      product, exchange, validity, protective, exit_role, parent_order_id, message,
-                     created_at, updated_at, archived_at)
+                     created_at, updated_at, exit_average_price, exit_filled_quantity, realised_pnl,
+                     broker_realised_pnl, pnl_source, exit_completed_at, pnl_updated_at, archived_at)
                 SELECT id, idempotency_key, order_id, symbol, side, quantity, status, filled_quantity,
                        average_price, order_type, price, trigger_price, stop_price, request_fingerprint,
                        product, exchange, validity, protective, exit_role, parent_order_id, message,
-                       created_at, updated_at, CURRENT_TIMESTAMP
+                       created_at, updated_at, exit_average_price, exit_filled_quantity, realised_pnl,
+                       broker_realised_pnl, pnl_source, exit_completed_at, pnl_updated_at, CURRENT_TIMESTAMP
                 FROM execution_request
                 WHERE created_at < ?
                 ON CONFLICT (id) DO NOTHING
                 """, cutoff);
         jdbc.update("DELETE FROM execution_request WHERE created_at < ?", cutoff);
+    }
+
+    private void archiveExecutionTrades(Timestamp cutoff) {
+        jdbc.update("""
+                INSERT INTO execution_trade_archive
+                    (id, trade_id, order_id, symbol, side, quantity, average_price,
+                     fill_timestamp, created_at, archived_at)
+                SELECT id, trade_id, order_id, symbol, side, quantity, average_price,
+                       fill_timestamp, created_at, CURRENT_TIMESTAMP
+                FROM execution_trade
+                WHERE created_at < ?
+                ON CONFLICT (id) DO NOTHING
+                """, cutoff);
+        jdbc.update("DELETE FROM execution_trade WHERE created_at < ?", cutoff);
     }
 
     private void archiveSignalVerifications(Timestamp cutoff) {

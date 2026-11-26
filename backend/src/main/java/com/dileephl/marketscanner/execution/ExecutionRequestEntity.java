@@ -31,6 +31,13 @@ class ExecutionRequestEntity {
     @Column(nullable = false, columnDefinition = "TEXT") private String message;
     @Column(nullable = false) private OffsetDateTime createdAt;
     @Column(nullable = false) private OffsetDateTime updatedAt;
+    @Column(name = "exit_average_price", precision = 19, scale = 4) private BigDecimal exitAveragePrice;
+    @Column(name = "exit_filled_quantity", nullable = false) private long exitFilledQuantity;
+    @Column(name = "realised_pnl", precision = 19, scale = 4) private BigDecimal realisedPnl;
+    @Column(name = "broker_realised_pnl", precision = 19, scale = 4) private BigDecimal brokerRealisedPnl;
+    @Column(name = "pnl_source", length = 32) private String pnlSource;
+    @Column(name = "exit_completed_at") private OffsetDateTime exitCompletedAt;
+    @Column(name = "pnl_updated_at") private OffsetDateTime pnlUpdatedAt;
     protected ExecutionRequestEntity() { }
     static ExecutionRequestEntity from(String key, BrokerOrderRequest request, BrokerOrderResponse response) {
         ExecutionRequestEntity e = new ExecutionRequestEntity(); e.id = UUID.randomUUID(); e.idempotencyKey = key;
@@ -89,10 +96,42 @@ class ExecutionRequestEntity {
     String validity() { return validity; }
     OffsetDateTime updatedAt() { return updatedAt; }
     OffsetDateTime createdAt() { return createdAt; }
+    BigDecimal averagePrice() { return averagePrice; }
+    BigDecimal triggerPrice() { return triggerPrice; }
+    BigDecimal exitAveragePrice() { return exitAveragePrice; }
+    long exitFilledQuantity() { return exitFilledQuantity; }
+    BigDecimal realisedPnl() { return realisedPnl; }
+    BigDecimal brokerRealisedPnl() { return brokerRealisedPnl; }
+    String pnlSource() { return pnlSource; }
+    OffsetDateTime exitCompletedAt() { return exitCompletedAt; }
+    void updateOutcome(ExecutionPnlCalculator.Result result, BigDecimal brokerPnl, String source, OffsetDateTime observedAt) {
+        if (result != null) {
+            exitFilledQuantity = result.matchedQuantity();
+            exitAveragePrice = result.exitAveragePrice();
+            realisedPnl = result.realisedPnl();
+            exitCompletedAt = result.completedAt();
+        }
+        brokerRealisedPnl = brokerPnl;
+        pnlSource = source;
+        pnlUpdatedAt = observedAt;
+        updatedAt = observedAt;
+    }
     ExecutionOrderView view() {
         return new ExecutionOrderView(orderId, symbol, side, quantity, filledQuantity, averagePrice,
                 status, orderType, price, triggerPrice, stopPrice, protective, exitRole(), parentOrderId,
-                product, exchange, validity, message, createdAt, updatedAt);
+                product, exchange, validity, message, createdAt, updatedAt,
+                exitAveragePrice, exitFilledQuantity, realisedPnl, brokerRealisedPnl, pnlSource, exitCompletedAt);
+    }
+    ExecutionOrderHistoryView history(ExecutionRequestEntity stop, ExecutionRequestEntity target) {
+        return new ExecutionOrderHistoryView(orderId, symbol, side, quantity, filledQuantity, status, orderType,
+                price, averagePrice,
+                stop == null ? null : stop.orderId(), stop == null ? null : stop.status(),
+                stop == null ? 0 : stop.filledQuantity(), stop == null ? null : stop.triggerPrice(),
+                stop == null ? null : stop.averagePrice(),
+                target == null ? null : target.orderId(), target == null ? null : target.status(),
+                target == null ? 0 : target.filledQuantity(), target == null ? null : target.price(),
+                target == null ? null : target.averagePrice(), exitFilledQuantity, exitAveragePrice,
+                realisedPnl, brokerRealisedPnl, pnlSource, exitCompletedAt, message, createdAt, updatedAt);
     }
     boolean matches(BrokerOrderRequest request) { return requestFingerprint == null || requestFingerprint.equals(BrokerOrderFingerprint.of(request)); }
     BrokerOrderResponse response() { return new BrokerOrderResponse(orderId, symbol.isBlank() ? null : symbol,

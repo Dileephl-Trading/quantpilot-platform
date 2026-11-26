@@ -14,6 +14,7 @@ interface ExecutionRequestRepository extends JpaRepository<ExecutionRequestEntit
     boolean existsBySymbolAndSideAndStatusIn(String symbol, String side, Collection<String> statuses);
     boolean existsBySymbolAndStatusIn(String symbol, Collection<String> statuses);
     List<ExecutionRequestEntity> findByStatusIn(Collection<String> statuses);
+    List<ExecutionRequestEntity> findByProtectiveFalseAndStatusIn(Collection<String> statuses);
     long countByStatusIn(Collection<String> statuses);
     Optional<ExecutionRequestEntity> findTopBySymbolOrderByCreatedAtDesc(String symbol);
     Optional<ExecutionRequestEntity> findTopBySymbolAndProtectiveFalseOrderByCreatedAtDesc(String symbol);
@@ -22,4 +23,5 @@ interface ExecutionRequestRepository extends JpaRepository<ExecutionRequestEntit
     Optional<ExecutionRequestEntity> findByParentOrderIdAndExitRole(String parentOrderId, String exitRole);
     List<ExecutionRequestEntity> findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(OffsetDateTime createdAt);
     Page<ExecutionRequestEntity> findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(OffsetDateTime createdAt, Pageable pageable);
+    Page<ExecutionRequestEntity> findByProtectiveFalseAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(OffsetDateTime createdAt, Pageable pageable);
 }

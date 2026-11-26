@@ -14,6 +14,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import org.springframework.data.domain.PageRequest;
@@ -33,18 +36,21 @@ public class BrokerOrderExecutionService {
     private final LiveExecutionProperties liveExecutionProperties;
     private final AutomatedExecutionProperties automationProperties;
     private final MarketInstrumentRepository instruments;
+    private final ExecutionTradeRepository trades;
 
     public BrokerOrderExecutionService(TradingProfileService profiles, ExecutionPreviewService previews, KiteOrderExecutionProvider provider, SafetyService safety,
                                        ExecutionRequestRepository requests, ExecutionOrderEventRepository events, AuditTrailService audit,
                                        LiveOrderRiskService liveRisk, KiteConnectProperties kiteProperties,
                                        LiveExecutionProperties liveExecutionProperties,
                                        AutomatedExecutionProperties automationProperties,
-                                       MarketInstrumentRepository instruments) {
+                                       MarketInstrumentRepository instruments,
+                                       ExecutionTradeRepository trades) {
         this.profiles = profiles; this.previews = previews; this.provider = provider; this.safety = safety; this.requests = requests; this.events = events; this.audit = audit;
         this.liveRisk = liveRisk; this.kiteProperties = kiteProperties;
         this.liveExecutionProperties = liveExecutionProperties;
         this.automationProperties = automationProperties;
         this.instruments = instruments;
+        this.trades = trades;
     }
 
     @Transactional
@@ -225,7 +231,7 @@ public class BrokerOrderExecutionService {
     public java.util.List<BrokerOrderResponse> reconcileTrackedOrders() {
         requireLive();
         java.util.List<BrokerOrderResponse> responses = new java.util.ArrayList<>();
-        for (ExecutionRequestEntity request : requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED"))) {
+        for (ExecutionRequestEntity request : reconciliationCandidates()) {
             responses.add(reconcile(request));
         }
         return java.util.List.copyOf(responses);
@@ -244,6 +250,19 @@ public class BrokerOrderExecutionService {
         OffsetDateTime cutoff = OffsetDateTime.now(ZoneOffset.ofHoursMinutes(5, 30)).minusDays(safeDays);
         return PagedResponse.from(requests.findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(
                 cutoff, PageRequest.of(safePage, safePageSize)), ExecutionRequestEntity::view);
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<ExecutionOrderHistoryView> trackedOrderHistoryPage(int days, int page, int pageSize) {
+        int safeDays = Math.max(1, Math.min(days, 7));
+        int safePage = Math.max(0, page);
+        int safePageSize = Math.max(1, Math.min(pageSize, 50));
+        OffsetDateTime cutoff = OffsetDateTime.now(ZoneOffset.ofHoursMinutes(5, 30)).minusDays(safeDays);
+        var source = requests.findByProtectiveFalseAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(
+                cutoff, PageRequest.of(safePage, safePageSize));
+        return PagedResponse.from(source, entry -> entry.history(
+                requests.findByParentOrderIdAndExitRole(entry.orderId(), "STOP").orElse(null),
+                requests.findByParentOrderIdAndExitRole(entry.orderId(), "TARGET").orElse(null)));
     }
 
     @Transactional(readOnly = true)
@@ -334,10 +353,97 @@ public class BrokerOrderExecutionService {
         BrokerOrderResponse persisted = persist(response, "BROKER_ORDER_STATUS_POLLED");
         if (request.protective()) {
             reconcileExitPair(request.parentOrderId());
+            reconcileOutcome(request.parentOrderId());
         } else {
             ensureExitOrders(request, persisted);
+            reconcileOutcome(request.orderId());
         }
         return persisted;
+    }
+
+    private List<ExecutionRequestEntity> reconciliationCandidates() {
+        Map<String, ExecutionRequestEntity> candidates = new LinkedHashMap<>();
+        requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED"))
+                .forEach(item -> candidates.put(item.orderId(), item));
+        // Completed entries must remain eligible: a restart can happen after
+        // the entry filled but before the stop/target or fill reconciliation ran.
+        for (ExecutionRequestEntity entry : requests.findByProtectiveFalseAndStatusIn(
+                List.of("COMPLETE", "PARTIALLY_FILLED"))) {
+            boolean missingProtection = requests.findByParentOrderIdAndExitRole(entry.orderId(), "STOP").isEmpty()
+                    || requests.findByParentOrderIdAndExitRole(entry.orderId(), "TARGET").isEmpty();
+            boolean outcomeIncomplete = entry.realisedPnl() == null
+                    || (entry.filledQuantity() > 0 && entry.exitFilledQuantity() < entry.filledQuantity());
+            if (missingProtection || outcomeIncomplete) candidates.put(entry.orderId(), entry);
+        }
+        return List.copyOf(candidates.values());
+    }
+
+    /**
+     * Pulls broker fills and the day position snapshot after an entry/exit
+     * changes.  Local fill P&L is always retained; the broker value is shown
+     * separately because Kite may aggregate several trades for one symbol.
+     */
+    private void reconcileOutcome(String parentOrderId) {
+        if (parentOrderId == null || parentOrderId.isBlank()) return;
+        ExecutionRequestEntity parent = requests.findByOrderId(parentOrderId).orElse(null);
+        if (parent == null || parent.protective()) return;
+        ExecutionRequestEntity stop = requests.findByParentOrderIdAndExitRole(parentOrderId, "STOP").orElse(null);
+        ExecutionRequestEntity target = requests.findByParentOrderIdAndExitRole(parentOrderId, "TARGET").orElse(null);
+        if (stop == null && target == null) return;
+
+        try {
+            upsertTrades(provider.trades(parent.orderId()));
+            if (stop != null) upsertTrades(provider.trades(stop.orderId()));
+            if (target != null) upsertTrades(provider.trades(target.orderId()));
+
+            List<BrokerTrade> entryTrades = trades.findByOrderIdOrderByFillTimestampAsc(parent.orderId())
+                    .stream().map(ExecutionTradeEntity::view).toList();
+            List<BrokerTrade> exitTrades = new ArrayList<>();
+            if (stop != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(stop.orderId()).stream().map(ExecutionTradeEntity::view).toList());
+            if (target != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(target.orderId()).stream().map(ExecutionTradeEntity::view).toList());
+            if (entryTrades.isEmpty() || exitTrades.isEmpty()) return;
+
+            ExecutionPnlCalculator.Result result = ExecutionPnlCalculator.calculate(
+                    OrderSide.valueOf(parent.side()), entryTrades, exitTrades);
+            if (result == null) return;
+
+            BigDecimal brokerPnl = null;
+            String source = "TRADE_FILLS";
+            try {
+                brokerPnl = provider.dayPositions().stream()
+                        .filter(position -> parent.symbol().equalsIgnoreCase(position.symbol()))
+                        .filter(position -> parent.exchange() == null || parent.exchange().isBlank()
+                                || parent.exchange().equalsIgnoreCase(position.exchange()))
+                        .filter(position -> parent.product() == null || parent.product().isBlank()
+                                || parent.product().equalsIgnoreCase(position.product()))
+                        .map(BrokerDayPosition::realisedPnl)
+                        .filter(value -> value != null)
+                        .findFirst().orElse(null);
+                if (brokerPnl != null) source = "BROKER_POSITION";
+            } catch (RuntimeException brokerError) {
+                audit.record("BROKER_PNL_RECONCILIATION_FAILED", "BROKER_ORDER", parent.orderId(), brokerError.getMessage());
+            }
+            OffsetDateTime observedAt = OffsetDateTime.now(ZoneOffset.ofHoursMinutes(5, 30));
+            parent.updateOutcome(result, brokerPnl, source, observedAt);
+            requests.save(parent);
+            audit.record("BROKER_ORDER_PNL_RECONCILED", "BROKER_ORDER", parent.orderId(),
+                    "exitQuantity=" + result.matchedQuantity() + ", exitAveragePrice=" + result.exitAveragePrice()
+                            + ", realisedPnl=" + result.realisedPnl() + ", source=" + source);
+        } catch (RuntimeException error) {
+            // P&L display is best effort; it must never stop protective-order polling.
+            audit.record("BROKER_PNL_RECONCILIATION_FAILED", "BROKER_ORDER", parent.orderId(), error.getMessage());
+        }
+    }
+
+    private void upsertTrades(List<BrokerTrade> brokerTrades) {
+        if (brokerTrades == null) return;
+        for (BrokerTrade trade : brokerTrades) {
+            if (trade == null || trade.tradeId() == null || trade.tradeId().isBlank()
+                    || trade.quantity() <= 0 || trade.averagePrice() == null) continue;
+            ExecutionTradeEntity entity = trades.findByTradeId(trade.tradeId()).orElseGet(() -> ExecutionTradeEntity.from(trade));
+            if (entity.tradeId().equals(trade.tradeId())) entity.apply(trade);
+            trades.save(entity);
+        }
     }
 
     private void ensureExitOrders(ExecutionRequestEntity parent, BrokerOrderResponse response) {

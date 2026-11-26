@@ -23,5 +23,11 @@ public record ExecutionOrderView(
         String validity,
         String message,
         OffsetDateTime createdAt,
-        OffsetDateTime updatedAt) {
+        OffsetDateTime updatedAt,
+        BigDecimal exitAveragePrice,
+        long exitFilledQuantity,
+        BigDecimal realisedPnl,
+        BigDecimal brokerRealisedPnl,
+        String pnlSource,
+        OffsetDateTime exitCompletedAt) {
 }
