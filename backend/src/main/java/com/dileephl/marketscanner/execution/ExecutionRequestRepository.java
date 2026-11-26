@@ -1,5 +1,7 @@
 package com.dileephl.marketscanner.execution;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.Collection;
 import java.util.List;
@@ -19,4 +21,5 @@ interface ExecutionRequestRepository extends JpaRepository<ExecutionRequestEntit
     Optional<ExecutionRequestEntity> findByParentOrderIdAndProtectiveTrue(String parentOrderId);
     Optional<ExecutionRequestEntity> findByParentOrderIdAndExitRole(String parentOrderId, String exitRole);
     List<ExecutionRequestEntity> findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(OffsetDateTime createdAt);
+    Page<ExecutionRequestEntity> findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(OffsetDateTime createdAt, Pageable pageable);
 }
