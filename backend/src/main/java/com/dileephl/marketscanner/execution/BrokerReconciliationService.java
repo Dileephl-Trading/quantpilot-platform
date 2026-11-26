@@ -38,6 +38,17 @@ public class BrokerReconciliationService {
         var riskIssues = new ArrayList<String>();
         for (var intent : journal.pending()) {
             var matches = book.stream().filter(row -> intent.tag().equals(row.tag())).toList();
+            if (matches.isEmpty() && intent.createdAt().isBefore(BrokerOrderExecutionService.sessionStart())
+                    && "MIS".equalsIgnoreCase(intent.request().product()) && "DAY".equalsIgnoreCase(intent.request().validity())
+                    && positions.stream().noneMatch(p -> intent.request().symbol().equalsIgnoreCase(p.symbol()))
+                    && book.stream().noneMatch(o -> intent.request().symbol().equalsIgnoreCase(o.state().symbol())
+                        && switch (o.state().status()) { case COMPLETE, CANCELLED, REJECTED -> false; default -> true; })) {
+                // Yesterday's submission outcome can remain unknown even after today's
+                // account proves there is no position or working order to manage.
+                journal.recordExpiredFlat(intent.key());
+                issues.add(intent.tag() + ": prior session flat, historical fill details unresolved");
+                continue;
+            }
             if (matches.size() != 1) {
                 riskIssues.add("Unconfirmed submission " + intent.tag());
                 continue;

@@ -34,21 +34,24 @@ public class SubmissionJournal {
                     return new Reservation(rs.getString(2), false);
                 }, key);
     }
-    public record Pending(String key, String tag, String parent, BrokerOrderRequest request) {}
+    public record Pending(String key, String tag, String parent, BrokerOrderRequest request, java.time.OffsetDateTime createdAt) {}
     public java.util.List<Pending> pending() {
         return db.query("""
-                select intent_key,broker_tag,parent_order_id,payload from broker_submission_intent i
-                where not exists(select 1 from execution_request r where r.idempotency_key=i.intent_key)
+                select intent_key,broker_tag,parent_order_id,payload,created_at from broker_submission_intent i
+                where i.flat_confirmed_at is null and not exists(select 1 from execution_request r where r.idempotency_key=i.intent_key)
                 and not exists(select 1 from execution_request_archive a where a.idempotency_key=i.intent_key)
                 """, (rs, i) -> {
             try { return new Pending(rs.getString(1), rs.getString(2), rs.getString(3),
-                    mapper.readValue(rs.getString(4), BrokerOrderRequest.class)); }
+                    mapper.readValue(rs.getString(4), BrokerOrderRequest.class), rs.getObject(5, java.time.OffsetDateTime.class)); }
             catch (java.io.IOException e) { throw new IllegalStateException("Invalid saved order intent", e); }
         });
     }
+    public void recordExpiredFlat(String key) {
+        db.update("update broker_submission_intent set flat_confirmed_at=current_timestamp where intent_key=? and flat_confirmed_at is null", key);
+    }
     public boolean hasUnresolvedOtherThan(String key) {
         return Boolean.TRUE.equals(db.queryForObject("""
-                select exists(select 1 from broker_submission_intent i where i.intent_key <> ?
+                select exists(select 1 from broker_submission_intent i where i.flat_confirmed_at is null and i.intent_key <> ?
                 and not exists(select 1 from execution_request r where r.idempotency_key=i.intent_key)
                 and not exists(select 1 from execution_request_archive a where a.idempotency_key=i.intent_key))
                 """, Boolean.class, key));

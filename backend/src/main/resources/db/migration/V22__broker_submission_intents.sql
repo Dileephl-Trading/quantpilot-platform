@@ -5,5 +5,6 @@ CREATE TABLE broker_submission_intent (
     parent_order_id text,
     symbol text NOT NULL,
     payload text NOT NULL,
+    flat_confirmed_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT current_timestamp
 );
