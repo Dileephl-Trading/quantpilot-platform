@@ -279,12 +279,14 @@ function App() {
           <MenuItem active={active === 'risk'} onClick={() => setActive('risk')} icon="◈">Risk preview</MenuItem>
           <MenuItem active={active === 'execution'} onClick={() => setActive('execution')} icon="⇄">Execution</MenuItem>
         </MenuGroup>
-        <MenuGroup label="Records" icon="▤" open={openGroups.records} active={active === 'audit' || active === 'journal'} onToggle={() => toggleGroup('records')}>
+        <MenuGroup label="Records" icon="▤" open={openGroups.records} active={active === 'audit' || active === 'journal' || active === 'placedOrders'} onToggle={() => toggleGroup('records')}>
           <MenuItem active={active === 'audit'} onClick={() => setActive('audit')} icon="▥">Audit log</MenuItem>
           <MenuItem active={active === 'journal'} onClick={() => setActive('journal')} icon="▤">Trade journal</MenuItem>
+          <MenuItem active={active === 'placedOrders'} onClick={() => setActive('placedOrders')} icon="▣">Placed orders</MenuItem>
         </MenuGroup>
-        <MenuGroup label="Market data" icon="◌" open={openGroups.market} active={active === 'integration' || active === 'monitorHistory'} onToggle={() => toggleGroup('market')}>
+        <MenuGroup label="Market data" icon="◌" open={openGroups.market} active={active === 'integration' || active === 'signalChecks' || active === 'monitorHistory'} onToggle={() => toggleGroup('market')}>
           <MenuItem active={active === 'integration'} onClick={() => setActive('integration')} icon="◌">Connection & data</MenuItem>
+          <MenuItem active={active === 'signalChecks'} onClick={() => setActive('signalChecks')} icon="✓">Signal checks</MenuItem>
           <MenuItem active={active === 'monitorHistory'} onClick={() => setActive('monitorHistory')} icon="◴">Monitor history</MenuItem>
         </MenuGroup>
         <MenuGroup label="Configuration" icon="⚙" open={openGroups.configuration} active={active === 'settings'} onToggle={() => toggleGroup('configuration')}>
@@ -302,7 +304,7 @@ function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">{profile?.mode === 'LIVE' ? 'LIVE TRADING WORKSPACE' : profile?.mode === 'DRY_RUN' ? 'DRY-RUN WORKSPACE' : 'PAPER TRADING WORKSPACE'}</p>
-          <h1>{active === 'settings' ? 'Trading profile' : active === 'risk' ? 'Risk preview' : active === 'execution' ? 'Order execution' : active === 'audit' ? 'Audit log' : active === 'journal' ? 'Trade journal' : active === 'integration' ? 'Market-data connection' : active === 'monitorHistory' ? 'Monitor history' : profile?.mode === 'LIVE' ? 'Live trading overview' : profile?.mode === 'DRY_RUN' ? 'Dry-run overview' : 'Paper trading overview'}</h1>
+          <h1>{active === 'settings' ? 'Trading profile' : active === 'risk' ? 'Risk preview' : active === 'execution' ? 'Order execution' : active === 'audit' ? 'Audit log' : active === 'journal' ? 'Trade journal' : active === 'placedOrders' ? 'Placed orders' : active === 'integration' ? 'Market-data connection' : active === 'signalChecks' ? 'Signal checks' : active === 'monitorHistory' ? 'Monitor history' : profile?.mode === 'LIVE' ? 'Live trading overview' : profile?.mode === 'DRY_RUN' ? 'Dry-run overview' : 'Paper trading overview'}</h1>
         </div>
         <div className="topbar-status">
           <div className="connection"><span className={loading ? 'status-dot amber' : 'status-dot'} /> {loading ? 'Connecting to API' : 'API connected'}</div>
@@ -325,7 +327,11 @@ function App() {
 
         {active === 'journal' && <JournalMUI notify={setNotice} />}
 
+        {active === 'placedOrders' && <PlacedOrdersMUI notify={setNotice} />}
+
         {active === 'integration' && <KiteIntegration status={kiteStatus} refresh={loadKiteStatus} notify={setNotice} onOpenMonitorHistory={() => setActive('monitorHistory')} />}
+
+        {active === 'signalChecks' && <SignalChecksMUI notify={setNotice} />}
 
         {active === 'monitorHistory' && <MonitorHistoryMUI notify={setNotice} />}
 
@@ -1143,6 +1149,142 @@ function MonitorHistoryMUI({ notify }) {
       </CardContent>
     </Card>
   </Box>
+}
+
+
+function decisionColor(decision) {
+  if (decision === 'ORDER_SUBMITTED' || decision === 'PASSED') return 'success'
+  if (decision === 'BLOCKED') return 'warning'
+  if (decision === 'ORDER_UNCERTAIN') return 'error'
+  return 'info'
+}
+
+function decisionLabel(decision) {
+  return String(decision || 'RECEIVED').replaceAll('_', ' ')
+}
+
+function SignalChecksMUI({ notify }) {
+  const emptyPage = { items: [], page: 0, pageSize: 10, totalElements: 0, totalPages: 0 }
+  const [state, setState] = useState(emptyPage)
+  const [loading, setLoading] = useState(false)
+
+  async function load(page = state.page) {
+    setLoading(true)
+    try {
+      const response = await apiFetch('/api/v1/live-market/verifications/page?days=7&page=' + page + '&pageSize=10')
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'Signal checks could not be loaded')
+      setState(data)
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load(0) }, [])
+
+  return <Card sx={pageCardSx}>
+    <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+      <PageHeading
+        eyebrow="SECOND-LAYER REVIEW · LAST 7 DAYS"
+        title="Signal checks"
+        description="Every WATCH LONG and WATCH SHORT signal is recorded here with the execution preflight, risk result, and final order decision."
+        action={<Button variant="outlined" onClick={() => load()} disabled={loading}>↻ Refresh</Button>}
+      />
+      <Alert severity="info" sx={{ mb: 2 }}>This page is an audit of the second check. A profitable or blocked result is not a guarantee; the final broker status remains authoritative.</Alert>
+      {loading && <LinearProgress sx={{ mb: 2 }} />}
+      {state.items.length === 0 ? <Paper sx={{ ...insetSx, p: 3, borderRadius: '8px' }}><Typography color="text.secondary">No WATCH LONG or WATCH SHORT verification has been recorded in the last seven days.</Typography></Paper> :
+        <Stack gap={1.5}>
+          {state.items.map(item => <Paper key={item.id} sx={{ p: { xs: 1.5, sm: 2 }, borderRadius: '8px', borderLeft: '4px solid', borderLeftColor: item.signalType === 'WATCH_LONG' ? '#16866f' : '#c54b57' }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={1}>
+              <Box sx={{ minWidth: 0 }}>
+                <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+                  <Typography fontWeight={850}>{item.symbol}</Typography>
+                  <Chip size="small" label={item.signalType === 'WATCH_LONG' ? 'WATCH LONG' : 'WATCH SHORT'} color={item.signalType === 'WATCH_LONG' ? 'success' : 'error'} />
+                </Stack>
+                <Typography variant="caption" color="text.secondary">{item.candleStart ? new Date(item.candleStart).toLocaleString() : '—'}</Typography>
+              </Box>
+              <Chip size="small" label={decisionLabel(item.decision)} color={decisionColor(item.decision)} />
+            </Stack>
+            <Stack direction="row" gap={.75} flexWrap="wrap" mt={1.25}>
+              <Chip size="small" variant="outlined" label={'Reference ' + money(item.referencePrice)} />
+              <Chip size="small" variant="outlined" label={'VWAP ' + money(item.vwap)} />
+              <Chip size="small" variant="outlined" label={'Invalidation ' + money(item.invalidationReference)} />
+              {item.orderId && <Chip size="small" color="primary" variant="outlined" label={'Order ' + item.orderId} />}
+            </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, mt: 1.25 }}>{item.analysis || 'No detailed analysis recorded.'}</Typography>
+          </Paper>)}
+        </Stack>}
+      {state.totalPages > 1 && <Stack alignItems="center" mt={2}><Pagination color="primary" count={state.totalPages} page={state.page + 1} onChange={(_, value) => load(value - 1)} disabled={loading} /></Stack>}
+    </CardContent>
+  </Card>
+}
+
+function orderStatusColor(status) {
+  if (status === 'COMPLETE') return 'success'
+  if (status === 'REJECTED' || status === 'CANCELLED' || status === 'UNKNOWN') return 'error'
+  if (status === 'PARTIALLY_FILLED') return 'warning'
+  return 'info'
+}
+
+function PlacedOrdersMUI({ notify }) {
+  const emptyPage = { items: [], page: 0, pageSize: 10, totalElements: 0, totalPages: 0 }
+  const [state, setState] = useState(emptyPage)
+  const [loading, setLoading] = useState(false)
+
+  async function load(page = state.page) {
+    setLoading(true)
+    try {
+      const response = await apiFetch('/api/v1/execution/orders/page?days=7&page=' + page + '&pageSize=10')
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'Placed orders could not be loaded')
+      setState(data)
+    } catch (error) {
+      notify({ tone: 'error', text: error.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load(0) }, [])
+
+  return <Card sx={pageCardSx}>
+    <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+      <PageHeading
+        eyebrow="BROKER ORDER TRAIL · LAST 7 DAYS"
+        title="Placed orders"
+        description="Entry, stop, and target orders are shown together so you can verify what was submitted, filled, rejected, or cancelled."
+        action={<Button variant="outlined" onClick={() => load()} disabled={loading}>↻ Refresh</Button>}
+      />
+      <Alert severity="warning" sx={{ mb: 2 }}>The application record is not a substitute for Zerodha's order book. Verify live fills and net positions at the broker.</Alert>
+      {loading && <LinearProgress sx={{ mb: 2 }} />}
+      {state.items.length === 0 ? <Paper sx={{ ...insetSx, p: 3, borderRadius: '8px' }}><Typography color="text.secondary">No placed orders in the last seven days.</Typography></Paper> :
+        <Stack gap={1.25}>
+          {state.items.map(item => <Paper key={item.orderId} sx={{ p: { xs: 1.5, sm: 2 }, borderRadius: '8px' }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={1}>
+              <Box sx={{ minWidth: 0 }}>
+                <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+                  <Typography fontWeight={850}>{item.symbol || 'Unknown symbol'}</Typography>
+                  <Chip size="small" label={item.protective ? (item.exitRole || 'EXIT') : 'ENTRY'} color={item.protective ? 'secondary' : 'primary'} variant="outlined" />
+                  <Chip size="small" label={item.status || 'UNKNOWN'} color={orderStatusColor(item.status)} />
+                </Stack>
+                <Typography variant="caption" color="text.secondary">{item.createdAt ? new Date(item.createdAt).toLocaleString() : '—'} · {item.orderId}</Typography>
+              </Box>
+              <Typography fontWeight={850} className={item.side === 'BUY' ? 'buy' : 'sell'}>{item.side || '—'} {item.quantity}</Typography>
+            </Stack>
+            <Stack direction="row" gap={.75} flexWrap="wrap" mt={1.25}>
+              <Chip size="small" variant="outlined" label={'Type ' + (item.orderType || '—')} />
+              <Chip size="small" variant="outlined" label={'Requested ' + money(item.price)} />
+              <Chip size="small" variant="outlined" label={'Filled ' + (item.filledQuantity || 0) + (item.averagePrice ? ' @ ' + money(item.averagePrice) : '')} />
+              {item.parentOrderId && <Chip size="small" variant="outlined" label={'Parent ' + item.parentOrderId} />}
+            </Stack>
+            {item.message && <Typography variant="body2" color="text.secondary" mt={1}>{item.message}</Typography>}
+          </Paper>)}
+        </Stack>}
+      {state.totalPages > 1 && <Stack alignItems="center" mt={2}><Pagination color="primary" count={state.totalPages} page={state.page + 1} onChange={(_, value) => load(value - 1)} disabled={loading} /></Stack>}
+    </CardContent>
+  </Card>
 }
 
 function Journal({ notify }) {
