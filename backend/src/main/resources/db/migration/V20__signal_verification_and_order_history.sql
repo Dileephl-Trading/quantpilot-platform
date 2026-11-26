@@ -1,3 +1,33 @@
+CREATE TABLE IF NOT EXISTS execution_request_archive (
+    id UUID PRIMARY KEY,
+    idempotency_key VARCHAR(128) NOT NULL,
+    order_id VARCHAR(64) NOT NULL,
+    symbol VARCHAR(64) NOT NULL,
+    side VARCHAR(8) NOT NULL,
+    quantity BIGINT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    filled_quantity BIGINT NOT NULL,
+    average_price NUMERIC(19, 4),
+    order_type VARCHAR(16),
+    price NUMERIC(19, 4),
+    trigger_price NUMERIC(19, 4),
+    stop_price NUMERIC(19, 4),
+    request_fingerprint VARCHAR(64),
+    product VARCHAR(16),
+    exchange VARCHAR(16),
+    validity VARCHAR(16),
+    protective BOOLEAN NOT NULL,
+    exit_role VARCHAR(16) NOT NULL,
+    parent_order_id VARCHAR(64),
+    message TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    archived_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ix_execution_request_archive_created_at
+    ON execution_request_archive (created_at DESC);
+
 CREATE TABLE IF NOT EXISTS signal_verification (
     id UUID PRIMARY KEY,
     provider VARCHAR(32) NOT NULL,
