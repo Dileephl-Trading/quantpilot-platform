@@ -89,6 +89,11 @@ class ExecutionRequestEntity {
     String validity() { return validity; }
     OffsetDateTime updatedAt() { return updatedAt; }
     OffsetDateTime createdAt() { return createdAt; }
+    ExecutionOrderView view() {
+        return new ExecutionOrderView(orderId, symbol, side, quantity, filledQuantity, averagePrice,
+                status, orderType, price, triggerPrice, stopPrice, protective, exitRole(), parentOrderId,
+                product, exchange, validity, message, createdAt, updatedAt);
+    }
     boolean matches(BrokerOrderRequest request) { return requestFingerprint == null || requestFingerprint.equals(BrokerOrderFingerprint.of(request)); }
     BrokerOrderResponse response() { return new BrokerOrderResponse(orderId, symbol.isBlank() ? null : symbol,
             side.isBlank() ? null : OrderSide.valueOf(side), quantity, filledQuantity, averagePrice,
