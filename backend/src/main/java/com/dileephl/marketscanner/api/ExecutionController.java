@@ -27,6 +27,14 @@ public class ExecutionController {
     @GetMapping("/orders")
     public java.util.List<BrokerOrderResponse> trackedOrders() { return orders.trackedOrders(); }
 
+    @GetMapping("/orders/page")
+    public PagedResponse<com.dileephl.marketscanner.execution.ExecutionOrderView> orderPage(
+            @RequestParam(defaultValue = "7") int days,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int pageSize) {
+        return orders.trackedOrdersPage(days, page, pageSize);
+    }
+
     @GetMapping("/orders/{orderId}/events")
     public java.util.List<com.dileephl.marketscanner.execution.ExecutionOrderEventView> events(@PathVariable String orderId) {
         return orders.events(orderId);
