@@ -20,6 +20,7 @@ interface ExecutionRequestRepository extends JpaRepository<ExecutionRequestEntit
     Optional<ExecutionRequestEntity> findTopBySymbolAndProtectiveFalseOrderByCreatedAtDesc(String symbol);
     java.util.Optional<ExecutionRequestEntity> findByOrderId(String orderId);
     Optional<ExecutionRequestEntity> findByParentOrderIdAndProtectiveTrue(String parentOrderId);
+    List<ExecutionRequestEntity> findByParentOrderIdAndExitRoleOrderByCreatedAtAsc(String parentOrderId, String exitRole);
     Optional<ExecutionRequestEntity> findByParentOrderIdAndExitRole(String parentOrderId, String exitRole);
     List<ExecutionRequestEntity> findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(OffsetDateTime createdAt);
     Page<ExecutionRequestEntity> findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(OffsetDateTime createdAt, Pageable pageable);

@@ -123,7 +123,7 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider, Broke
     @Override public List<BrokerDayPosition> dayPositions() {
         JsonNode data = send("GET", "/portfolio/positions", "");
         JsonNode day = data.path("day");
-        if (!day.isArray()) return List.of();
+        if (!day.isArray()) throw new IllegalStateException("Missing broker day positions");
         List<BrokerDayPosition> positions = new ArrayList<>();
         for (JsonNode row : day) {
             String symbol = row.path("tradingsymbol").asText("");

@@ -29,7 +29,7 @@ final class ExecutionPnlCalculator {
                 : entryAverage.subtract(exitAverage).multiply(BigDecimal.valueOf(matched));
         OffsetDateTime completedAt = exitTrades.stream().filter(t -> t != null && t.fillTimestamp() != null)
                 .map(BrokerTrade::fillTimestamp).max(OffsetDateTime::compareTo).orElse(null);
-        return new Result(matched, entryAverage, exitAverage, pnl.setScale(4, RoundingMode.HALF_UP), completedAt);
+        return new Result(matched, exitQuantity - matched, entryAverage, exitAverage, pnl.setScale(4, RoundingMode.HALF_UP), completedAt);
     }
 
     private static BigDecimal weightedNotional(List<BrokerTrade> trades, long requiredQuantity) {
@@ -44,6 +44,6 @@ final class ExecutionPnlCalculator {
         return notional;
     }
 
-    record Result(long matchedQuantity, BigDecimal entryAveragePrice, BigDecimal exitAveragePrice,
+    record Result(long matchedQuantity, long excessQuantity, BigDecimal entryAveragePrice, BigDecimal exitAveragePrice,
                   BigDecimal realisedPnl, OffsetDateTime completedAt) { }
 }

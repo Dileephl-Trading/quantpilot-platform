@@ -79,11 +79,22 @@ public class BrokerReconciliationService {
             try {
                 reconcileOutcome(order.orderId(), book);
                 var updated = requests.findByOrderId(order.orderId()).orElseThrow();
+                if (updated.excessExitQuantity() > 0) {
+                    boolean reversed = positions.stream().anyMatch(p -> BrokerOrderExecutionService.sameInstrument(updated,
+                            p.symbol(), p.exchange(), p.product()) && (p.quantity() > 0) != "BUY".equals(updated.side()));
+                    (reversed ? riskIssues : issues).add(updated.symbol() + ": excess exit fills " + updated.excessExitQuantity());
+                }
                 if (updated.exitFilledQuantity() < updated.filledQuantity()
                         && positions.stream().noneMatch(p -> BrokerOrderExecutionService.sameInstrument(updated, p.symbol(), p.exchange(), p.product())))
                     issues.add(order.orderId() + ": flat at broker, exit allocation incomplete");
             }
             catch (RuntimeException error) { issues.add(order.orderId() + ": " + error.getMessage()); }
+        }
+        for (var position : positions) {
+            if (rows.stream().noneMatch(o -> !o.protective() && BrokerOrderExecutionService.sameInstrument(o,
+                    position.symbol(), position.exchange(), position.product()))) continue;
+            var coverage = StopCoverage.assess(position, book);
+            if (!coverage.exact()) riskIssues.add(coverage.describe(position));
         }
         issues.addAll(riskIssues);
         return new Reconciliation(checked, List.copyOf(issues), List.copyOf(riskIssues));
@@ -100,19 +111,23 @@ public class BrokerReconciliationService {
         if (parent == null || parent.protective()) return;
         ExecutionRequestEntity stop = requests.findByParentOrderIdAndExitRole(parentOrderId, "STOP").orElse(null);
         ExecutionRequestEntity target = requests.findByParentOrderIdAndExitRole(parentOrderId, "TARGET").orElse(null);
-        ExecutionRequestEntity close = requests.findByParentOrderIdAndExitRole(parentOrderId, "CLOSE").orElse(null);
-        if (parent.filledQuantity() == 0 || parent.exitFilledQuantity() == parent.filledQuantity()) return;
+        var closes = requests.findByParentOrderIdAndExitRoleOrderByCreatedAtAsc(parentOrderId, "CLOSE");
+        long linkedFills = (stop == null ? 0 : stop.filledQuantity()) + (target == null ? 0 : target.filledQuantity())
+                + closes.stream().mapToLong(ExecutionRequestEntity::filledQuantity).sum();
+        if (parent.filledQuantity() == 0 && linkedFills == 0) return;
+        if (parent.exitFilledQuantity() == parent.filledQuantity() && linkedFills <= parent.exitFilledQuantity()
+                && parent.excessExitQuantity() == 0) return;
 
         refreshFills(parent);
         refreshFills(stop);
-        refreshFills(close);
+        closes.forEach(this::refreshFills);
         refreshFills(target);
 
         List<BrokerTrade> entryTrades = trades.findByOrderIdOrderByFillTimestampAsc(parent.orderId())
                 .stream().map(ExecutionTradeEntity::view).toList();
         List<BrokerTrade> exitTrades = new ArrayList<>();
         if (stop != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(stop.orderId()).stream().map(ExecutionTradeEntity::view).toList());
-        if (close != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(close.orderId()).stream().map(ExecutionTradeEntity::view).toList());
+        for (var close : closes) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(close.orderId()).stream().map(ExecutionTradeEntity::view).toList());
         if (target != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(target.orderId()).stream().map(ExecutionTradeEntity::view).toList());
         if (entryTrades.stream().mapToLong(BrokerTrade::quantity).sum() != parent.filledQuantity()) throw new IllegalStateException("Entry fills unavailable");
         var sameInstrument = book.stream().filter(row -> parent.symbol().equalsIgnoreCase(row.state().symbol())
@@ -136,7 +151,7 @@ public class BrokerReconciliationService {
             exitTrades.addAll(extra);
         }
         long knownFills = (stop == null ? 0 : stop.filledQuantity()) + (target == null ? 0 : target.filledQuantity())
-                + (close == null ? 0 : close.filledQuantity());
+                + closes.stream().mapToLong(ExecutionRequestEntity::filledQuantity).sum();
         if (exitTrades.stream().mapToLong(BrokerTrade::quantity).sum() < knownFills)
             throw new IllegalStateException("Exit fills incomplete");
         if (exitTrades.isEmpty()) {

@@ -45,11 +45,16 @@ public class SessionCloseoutService {
                 || !auth.hasCurrentAccessToken()) return;
         OffsetDateTime now = OffsetDateTime.now(ZoneId.of("Asia/Kolkata"));
         LocalDate date = now.toLocalDate();
-        if (sessions.isCancelPendingDue(now) && !date.equals(lastCancelDate)) {
+        if (sessions.isCancelPendingDue(now)) {
             try {
-                execution.cancelTrackedOpenOrdersForSafety();
-                lastCancelDate = date;
-                audit.record("SESSION_PENDING_ENTRIES_CANCELLED", "TRADING_SAFETY", "GLOBAL", "cutoff=14:55");
+                var pending = execution.cancelTrackedOpenOrdersForSafety();
+                if (pending.isEmpty() && !date.equals(lastCancelDate)) {
+                    lastCancelDate = date;
+                    audit.record("SESSION_PENDING_ENTRIES_CANCELLED", "TRADING_SAFETY", "GLOBAL", "confirmed");
+                } else if (!pending.isEmpty()) {
+                    lastCancelDate = null;
+                    audit.record("SESSION_CANCELLATION_PENDING", "TRADING_SAFETY", "GLOBAL", String.join(",", pending));
+                }
             } catch (RuntimeException error) {
                 audit.record("SESSION_PENDING_CANCEL_FAILED", "TRADING_SAFETY", "GLOBAL", error.getMessage());
             }

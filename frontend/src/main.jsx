@@ -1357,6 +1357,7 @@ function PlacedOrdersMUI({ notify }) {
                   </Stack>
                 </Stack>
               </Paper>
+              {item.excessExitQuantity > 0 && <Alert severity="error">Exit fills exceed entry fills by {item.excessExitQuantity} units. Review the broker position.</Alert>}
               {item.message && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, overflowWrap: 'anywhere' }}>{item.message}</Typography>}
             </Paper>
           })}

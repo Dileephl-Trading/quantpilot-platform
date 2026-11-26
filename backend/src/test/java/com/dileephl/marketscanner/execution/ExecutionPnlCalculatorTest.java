@@ -33,6 +33,13 @@ class ExecutionPnlCalculatorTest {
         assertThat(result.realisedPnl()).isEqualByComparingTo("-10.0000");
     }
 
+    @Test void recordsUnmatchedReverseExposure() {
+        var result = ExecutionPnlCalculator.calculate(OrderSide.BUY, List.of(fill("e","BUY",100,"100")),
+                List.of(fill("s","SELL",100,"99"), fill("t","SELL",40,"102")));
+        assertThat(result.matchedQuantity()).isEqualTo(100);
+        assertThat(result.excessQuantity()).isEqualTo(40);
+    }
+
     private BrokerTrade fill(String id, String side, long quantity, String price) {
         return new BrokerTrade(id, "order-1", "SBIN", OrderSide.valueOf(side), quantity,
                 new BigDecimal(price), TIME);

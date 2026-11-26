@@ -38,6 +38,8 @@ class ExecutionRequestEntity {
     @Column(name = "pnl_source", length = 32) private String pnlSource;
     @Column(name = "exit_completed_at") private OffsetDateTime exitCompletedAt;
     @Column(name = "pnl_updated_at") private OffsetDateTime pnlUpdatedAt;
+    @Column(nullable = false) private long excessExitQuantity;
+    long excessExitQuantity() { return excessExitQuantity; }
     protected ExecutionRequestEntity() { }
     static ExecutionRequestEntity from(String key, BrokerOrderRequest request, BrokerOrderResponse response) {
         ExecutionRequestEntity e = new ExecutionRequestEntity(); e.id = UUID.randomUUID(); e.idempotencyKey = key;
@@ -114,6 +116,7 @@ class ExecutionRequestEntity {
     void updateOutcome(ExecutionPnlCalculator.Result result, BigDecimal brokerPnl, String source, OffsetDateTime observedAt) {
         if (result != null) {
             exitFilledQuantity = result.matchedQuantity();
+            excessExitQuantity = result.excessQuantity();
             exitAveragePrice = result.exitAveragePrice();
             realisedPnl = result.realisedPnl();
             exitCompletedAt = result.completedAt();
@@ -137,7 +140,7 @@ class ExecutionRequestEntity {
                 stop == null ? null : stop.averagePrice(),
                 target == null ? null : target.orderId(), target == null ? null : target.status(),
                 target == null ? 0 : target.filledQuantity(), target == null ? null : target.price(),
-                target == null ? null : target.averagePrice(), exitFilledQuantity, exitAveragePrice,
+                target == null ? null : target.averagePrice(), excessExitQuantity, exitFilledQuantity, exitAveragePrice,
                 realisedPnl, brokerRealisedPnl, pnlSource, exitCompletedAt, message, createdAt, updatedAt);
     }
     boolean matches(BrokerOrderRequest request) { return requestFingerprint == null || requestFingerprint.equals(BrokerOrderFingerprint.of(request)); }
