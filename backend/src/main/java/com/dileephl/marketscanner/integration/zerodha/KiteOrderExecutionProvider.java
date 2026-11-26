@@ -113,7 +113,8 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
             String exchange = row.path("exchange").asText("NSE");
             String body = "exchange=" + encode(exchange) + "&tradingsymbol=" + encode(symbol)
                     + "&transaction_type=" + side.name() + "&order_type=MARKET&quantity="
-                    + Math.abs(netQuantity) + "&product=" + encode(product) + "&validity=DAY";
+                    + Math.abs(netQuantity) + "&product=" + encode(product) + "&validity=DAY"
+                    + "&market_protection=-1";
             JsonNode response = send("POST", "/orders/regular", body);
             String orderId = response.path("order_id").asText("");
             if (!orderId.isBlank()) {
@@ -175,6 +176,9 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
             add(fields, "price", r.price().toPlainString());
         }
         if (r.triggerPrice() != null) add(fields, "trigger_price", r.triggerPrice().toPlainString());
+        if ("MARKET".equals(orderType) || "SL-M".equals(orderType)) {
+            add(fields, "market_protection", "-1");
+        }
         return String.join("&", fields);
     }
     private void add(List<String> f, String key, String value) { f.add(encode(key) + "=" + encode(value)); }
