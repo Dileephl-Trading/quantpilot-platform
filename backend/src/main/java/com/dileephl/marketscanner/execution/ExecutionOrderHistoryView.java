@@ -24,6 +24,7 @@ public record ExecutionOrderHistoryView(
         long targetFilledQuantity,
         BigDecimal targetRequestedPrice,
         BigDecimal targetAveragePrice,
+        long excessExitQuantity,
         long exitFilledQuantity,
         BigDecimal exitAveragePrice,
         BigDecimal realisedPnl,

@@ -29,6 +29,7 @@ public class ExecutionReconciliationService {
                 || !properties.hasApiKey() || !properties.hasApiSecret()) return;
         try {
             execution.reconcileTrackedOrders();
+            execution.manageProtection(false);
         } catch (RuntimeException ignored) {
             // A transient broker/network error must not stop the scheduler. The next poll retries it.
         }

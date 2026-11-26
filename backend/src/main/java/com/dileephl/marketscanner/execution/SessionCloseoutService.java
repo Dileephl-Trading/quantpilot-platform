@@ -26,18 +26,16 @@ public class SessionCloseoutService {
     private final KiteConnectProperties kite;
     private final KiteAuthService auth;
     private final BrokerOrderExecutionService execution;
-    private final SafetyService safety;
     private final AuditTrailService audit;
     private LocalDate lastCancelDate;
-    private LocalDate lastSquareOffDate;
     private LocalDate lastDeadlineDate;
 
     public SessionCloseoutService(MarketSessionService sessions, TradingProfileService profiles,
                                   KiteConnectProperties kite, KiteAuthService auth,
-                                  BrokerOrderExecutionService execution, SafetyService safety,
+                                  BrokerOrderExecutionService execution,
                                   AuditTrailService audit) {
         this.sessions = sessions; this.profiles = profiles; this.kite = kite; this.auth = auth;
-        this.execution = execution; this.safety = safety; this.audit = audit;
+        this.execution = execution; this.audit = audit;
     }
 
     @Scheduled(fixedDelayString = "${scanner.execution.status-poll-ms:5000}")
@@ -47,24 +45,22 @@ public class SessionCloseoutService {
                 || !auth.hasCurrentAccessToken()) return;
         OffsetDateTime now = OffsetDateTime.now(ZoneId.of("Asia/Kolkata"));
         LocalDate date = now.toLocalDate();
-        if (sessions.isCancelPendingDue(now) && !date.equals(lastCancelDate)) {
+        if (sessions.isCancelPendingDue(now)) {
             try {
-                execution.cancelTrackedOpenOrders();
-                lastCancelDate = date;
-                audit.record("SESSION_PENDING_ENTRIES_CANCELLED", "TRADING_SAFETY", "GLOBAL", "cutoff=14:55");
+                var pending = execution.cancelTrackedOpenOrdersForSafety();
+                if (pending.isEmpty() && !date.equals(lastCancelDate)) {
+                    lastCancelDate = date;
+                    audit.record("SESSION_PENDING_ENTRIES_CANCELLED", "TRADING_SAFETY", "GLOBAL", "confirmed");
+                } else if (!pending.isEmpty()) {
+                    lastCancelDate = null;
+                    audit.record("SESSION_CANCELLATION_PENDING", "TRADING_SAFETY", "GLOBAL", String.join(",", pending));
+                }
             } catch (RuntimeException error) {
                 audit.record("SESSION_PENDING_CANCEL_FAILED", "TRADING_SAFETY", "GLOBAL", error.getMessage());
             }
         }
-        if (sessions.isSquareOffDue(now) && !date.equals(lastSquareOffDate)) {
-            try {
-                execution.squareOffPositionsForSafety();
-                // One square-off request per session avoids duplicate market
-                // exits while the broker is still processing the first one.
-                lastSquareOffDate = date;
-            } catch (RuntimeException error) {
-                audit.record("SESSION_SQUARE_OFF_RETRY", "TRADING_SAFETY", "GLOBAL", error.getMessage());
-            }
+        if (sessions.isSquareOffDue(now)) {
+            execution.manageProtection(true);
         }
         if (sessions.isHardFlatDeadline(now) && !date.equals(lastDeadlineDate)) {
             try {
@@ -75,8 +71,7 @@ public class SessionCloseoutService {
                                 || profile.product().equalsIgnoreCase(position.product()))
                         .toList();
                 if (!remaining.isEmpty()) {
-                    execution.squareOffPositionsForSafety();
-                    audit.record("SESSION_HARD_FLAT_RETRY_SUBMITTED", "TRADING_SAFETY", "GLOBAL",
+                    audit.record("SESSION_POSITIONS_REMAIN_AT_DEADLINE", "TRADING_SAFETY", "GLOBAL",
                             "remainingPositions=" + remaining.size());
                 }
             } catch (RuntimeException error) {
@@ -84,7 +79,6 @@ public class SessionCloseoutService {
             } finally {
                 lastDeadlineDate = date;
             }
-            safety.enable("Hard flat deadline reached; live automation remains blocked until positions are reviewed");
             audit.record("SESSION_HARD_FLAT_DEADLINE_REACHED", "TRADING_SAFETY", "GLOBAL", "deadline=15:03");
         }
     }

@@ -25,9 +25,11 @@ public class LiveOrderRiskService {
     private final TradingProfileService profiles;
     private final ExecutionRequestRepository requests;
     private final OrderExecutionProvider provider;
+    private final com.dileephl.marketscanner.config.MarketSessionService sessions;
 
     public LiveOrderRiskService(TradingProfileService profiles, ExecutionRequestRepository requests,
-                                OrderExecutionProvider provider) {
+                                OrderExecutionProvider provider, com.dileephl.marketscanner.config.MarketSessionService sessions) {
+        this.sessions = sessions;
         this.profiles = profiles;
         this.requests = requests;
         this.provider = provider;
@@ -48,12 +50,14 @@ public class LiveOrderRiskService {
                     BigDecimal.ZERO, 0, 0);
         }
 
+        var decisionTime = now == null ? OffsetDateTime.now(INDIA) : now;
+        if (!sessions.isOpen(decisionTime) || !sessions.isNewEntryAllowed(decisionTime)) reasons.add("Live entry window is closed");
         String symbol = request.symbol().trim().toUpperCase(Locale.ROOT);
         OffsetDateTime start = startOfDay(now == null ? OffsetDateTime.now(INDIA) : now);
         List<ExecutionRequestEntity> today = requests.findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(start);
         List<ExecutionRequestEntity> entryRequests = today.stream()
                 .filter(item -> !item.protective())
-                .filter(item -> COUNTED_STATUSES.contains(item.status()))
+                .filter(item -> COUNTED_STATUSES.contains(item.status()) || item.filledQuantity() > 0)
                 .toList();
 
         if (entryRequests.size() >= profile.maxTradesPerDay()) {
@@ -71,20 +75,18 @@ public class LiveOrderRiskService {
                         || profile.exchange().isBlank()
                         || profile.exchange().equalsIgnoreCase(position.exchange()))
                 .toList();
-        long activeRequestCount = requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED")).stream()
-                .filter(item -> !item.protective())
-                .map(ExecutionRequestEntity::symbol)
-                .distinct()
-                .count();
-        long openPositionCount = positions.stream().map(BrokerPosition::symbol).distinct().count();
-        long occupiedSlots = Math.max(activeRequestCount, openPositionCount);
+        var occupied = new java.util.HashSet<String>();
+        positions.forEach(p -> occupied.add(instrument(p.exchange(), p.product(), p.symbol())));
+        entryRequests.stream().filter(item -> active(item.status()))
+                .forEach(o -> occupied.add(instrument(o.exchange(), o.product(), o.symbol())));
+        long occupiedSlots = occupied.size();
         if (occupiedSlots >= profile.maxOpenPositions()) {
             reasons.add("Maximum live open positions has been reached");
         }
         if (positions.stream().anyMatch(position -> symbol.equalsIgnoreCase(position.symbol()))) {
             reasons.add("A live position already exists for " + symbol);
         }
-        if (requests.existsBySymbolAndStatusIn(symbol, List.of("PENDING", "OPEN", "PARTIALLY_FILLED"))) {
+        if (today.stream().anyMatch(item -> symbol.equalsIgnoreCase(item.symbol()) && List.of("PENDING", "OPEN", "PARTIALLY_FILLED", "UNKNOWN").contains(item.status()))) {
             reasons.add("An active entry order already exists for " + symbol);
         }
 
@@ -106,10 +108,33 @@ public class LiveOrderRiskService {
         if (proposedRisk.signum() <= 0) {
             reasons.add("A positive expected entry and protective stop are required");
         } else {
-            BigDecimal reserved = entryRequests.stream().map(this::reservedRisk)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            if (reserved.add(proposedRisk).compareTo(profile.maxDailyLoss()) > 0) {
-                reasons.add("This entry would exceed the remaining live daily risk reserve");
+            var day = provider.dayPositions().stream().filter(p -> profile.product() == null
+                    || profile.product().isBlank() || profile.product().equalsIgnoreCase(p.product())).toList();
+            BigDecimal localRealised = entryRequests.stream().map(ExecutionRequestEntity::realisedPnl)
+                    .filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal booked = BigDecimal.ZERO;
+            BigDecimal marked = BigDecimal.ZERO;
+            for (var p : day) {
+                if (p.pnl() == null || p.realisedPnl() == null) {
+                    reasons.add("Broker daily P&L incomplete for " + p.symbol());
+                    continue;
+                }
+                booked = booked.add(p.quantity() == 0 ? p.pnl() : p.realisedPnl());
+                marked = marked.add(p.pnl());
+            }
+            BigDecimal loss = booked.min(marked).min(localRealised).min(BigDecimal.ZERO).negate();
+            BigDecimal reserved = BigDecimal.ZERO;
+            for (var entry : entryRequests) {
+                if (entry.filledQuantity() > 0 && day.stream().noneMatch(p -> BrokerOrderExecutionService.sameInstrument(
+                        entry, p.symbol(), p.exchange(), p.product()))) reasons.add("Missing broker daily P&L for " + entry.symbol());
+                long pending = active(entry.status()) ? Math.max(0, entry.quantity() - entry.filledQuantity()) : 0;
+                long remaining = Math.max(0, entry.filledQuantity() - entry.exitFilledQuantity());
+                reserved = reserved.add(risk(entry.price(), entry.stopPrice(), pending))
+                        .add(risk(entry.averagePrice() == null ? entry.price() : entry.averagePrice(), entry.stopPrice(), remaining));
+            }
+            if (loss.add(reserved).add(proposedRisk).compareTo(profile.maxDailyLoss()) > 0) {
+                reasons.add("Daily loss " + loss + " plus outstanding risk " + reserved
+                        + " and proposed risk " + proposedRisk + " exceeds the daily loss limit");
             }
             if (proposedRisk.compareTo(profile.maxLossPerTrade()) > 0) {
                 reasons.add("Proposed risk exceeds the configured maximum loss per trade");
@@ -119,8 +144,18 @@ public class LiveOrderRiskService {
                 entryRequests.size(), occupiedSlots);
     }
 
-    private BigDecimal reservedRisk(ExecutionRequestEntity request) {
-        return risk(request.price(), request.stopPrice(), request.quantity());
+    private static boolean active(String status) {
+        return List.of("PENDING", "OPEN", "PARTIALLY_FILLED", "UNKNOWN").contains(status);
+    }
+
+    private static String instrument(String exchange, String product, String symbol) {
+        return (java.util.Objects.toString(exchange, "NSE") + "/" + java.util.Objects.toString(product, "MIS")
+                + "/" + symbol).toUpperCase(Locale.ROOT);
+    }
+
+    void requireEntryWindow() {
+        var now = OffsetDateTime.now(INDIA);
+        if (!sessions.isOpen(now) || !sessions.isNewEntryAllowed(now)) throw new IllegalStateException("Live entry window is closed");
     }
 
     private BigDecimal risk(BigDecimal entry, BigDecimal stop, long quantity) {
