@@ -10,6 +10,7 @@ import com.dileephl.marketscanner.config.TradingProfileService;
 import com.dileephl.marketscanner.integration.marketdata.CandleInterval;
 import com.dileephl.marketscanner.integration.zerodha.KiteAuthService;
 import com.dileephl.marketscanner.integration.zerodha.KiteConnectProperties;
+import com.dileephl.marketscanner.live.SignalVerificationService;
 import com.dileephl.marketscanner.marketdata.MarketInstrumentEntity;
 import com.dileephl.marketscanner.marketdata.MarketInstrumentRepository;
 import com.dileephl.marketscanner.service.SignalEngine;
@@ -21,6 +22,7 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Converts a completed scanner alert into a risk-checked broker request only when every
@@ -45,6 +47,7 @@ public class AutomatedExecutionService {
     private final LiveExecutionPreflightService preflight;
     private final LiveOrderRiskService liveRisk;
     private final LiveExecutionProperties liveExecutionProperties;
+    private final SignalVerificationService verifications;
     private final MarketInstrumentRepository instruments;
 
     public AutomatedExecutionService(AutomatedExecutionProperties properties, TradingProfileService profiles,
@@ -54,6 +57,7 @@ public class AutomatedExecutionService {
                                      AutomationSafetyStateRepository safetyStates, AuditTrailService audit,
                                      LiveExecutionPreflightService preflight, LiveOrderRiskService liveRisk,
                                      LiveExecutionProperties liveExecutionProperties,
+                                     SignalVerificationService verifications,
                                      MarketInstrumentRepository instruments) {
         properties.validate();
         this.properties = properties; this.profiles = profiles; this.sessions = sessions;
@@ -61,6 +65,7 @@ public class AutomatedExecutionService {
         this.previews = previews; this.execution = execution; this.requests = requests;
         this.safetyStates = safetyStates; this.audit = audit; this.preflight = preflight; this.liveRisk = liveRisk;
         this.liveExecutionProperties = liveExecutionProperties;
+        this.verifications = verifications;
         this.instruments = instruments;
     }
 
@@ -97,14 +102,20 @@ public class AutomatedExecutionService {
 
         String normalizedSymbol = symbol == null ? "" : symbol.trim().toUpperCase();
         String signalKey = "AUTO-" + provider + "-" + normalizedSymbol + "-" + candle.timestamp() + "-" + signal.type();
+        String analysis = describeSignal(signal);
         boolean brokerAttempted = false;
+        safeRecord(provider, instrumentToken, normalizedSymbol, candle, signal,
+                "RECEIVED", analysis, null);
         try {
             if (currentSafetyState().uncertainBrokerState()) throw new IllegalStateException("Previous broker result is uncertain; manual reconciliation is required");
+
             LiveExecutionPreflightService.Preflight preflightResult = preflight.run();
+            analysis += "\n\nExecution preflight:\n" + describePreflight(preflightResult);
             if (!preflightResult.ready()) {
                 throw new IllegalStateException("Live execution preflight failed: " + preflightResult.checks().stream()
                         .filter(check -> !check.passed()).map(LiveExecutionPreflightService.Check::detail).reduce((a, b) -> a + "; " + b).orElse("unknown"));
             }
+
             TradingProfile profile = profiles.current();
             OffsetDateTime now = OffsetDateTime.now(INDIA);
             require(profile, sessions, now, kiteProperties, auth, safety, candle, interval);
@@ -127,6 +138,10 @@ public class AutomatedExecutionService {
                 throw new IllegalStateException("Signal entry and invalidation collapse to the same exchange tick");
             }
             OrderPreview preview = previews.previewLive(new ExecutionPreviewService.OrderRequest(normalizedSymbol, side, entry, stop, 1));
+            analysis += "\n\nRisk preview: allowed=" + preview.allowed()
+                    + ", maxQuantity=" + preview.maxAllowedQuantity()
+                    + ", proposedRisk=" + preview.proposedRisk()
+                    + ", reasons=" + String.join(" · ", preview.reasons());
             if (!preview.allowed() || preview.maxAllowedQuantity() <= 0) {
                 throw new IllegalStateException("Signal failed risk validation: " + String.join("; ", preview.reasons()));
             }
@@ -137,19 +152,33 @@ public class AutomatedExecutionService {
                     properties.getOrderType(), entry,
                     null, profile.product(), profile.exchange(), "DAY", stop);
             LiveOrderRiskService.RiskCheck liveCheck = liveRisk.verify(request, now);
+            analysis += "\n\nSecond live verification: allowed=" + liveCheck.allowed()
+                    + ", proposedRisk=" + liveCheck.proposedRisk()
+                    + ", tradesToday=" + liveCheck.tradesToday()
+                    + ", occupiedSlots=" + liveCheck.occupiedPositionSlots()
+                    + ", reasons=" + String.join(" · ", liveCheck.reasons());
             if (!liveCheck.allowed()) {
                 throw new IllegalStateException("Second live verification failed: " + String.join("; ", liveCheck.reasons()));
             }
+
+            safeRecord(provider, instrumentToken, normalizedSymbol, candle, signal,
+                    "PASSED", analysis + "\n\nDecision: ready for broker order.", null);
             audit.record("AUTOMATED_SIGNAL_VERIFIED", "AUTOMATION_SIGNAL", signalKey,
                     "symbol=" + normalizedSymbol + ", side=" + side + ", risk=" + liveCheck.proposedRisk()
                             + ", tradesToday=" + liveCheck.tradesToday() + ", occupiedSlots=" + liveCheck.occupiedPositionSlots());
             brokerAttempted = true;
-            execution.place(signalKey, request);
+            BrokerOrderResponse response = execution.place(signalKey, request);
+            safeRecord(provider, instrumentToken, normalizedSymbol, candle, signal,
+                    "ORDER_SUBMITTED", analysis + "\n\nDecision: broker entry submitted.", response.orderId());
             audit.record("AUTOMATED_ORDER_SUBMITTED", "AUTOMATION_SIGNAL", signalKey,
                     "symbol=" + normalizedSymbol + ", signal=" + signal.type() + ", token=" + instrumentToken
                             + ", candle=" + candle.timestamp() + ", quantity=" + quantity);
         } catch (RuntimeException error) {
             String eventType = brokerAttempted ? "AUTOMATED_ORDER_UNCERTAIN" : "AUTOMATED_ORDER_SKIPPED";
+            String decision = brokerAttempted ? "ORDER_UNCERTAIN" : "BLOCKED";
+            String finalAnalysis = analysis + "\n\nDecision: " + decision + "\nReason: " + safe(error.getMessage());
+            safeRecord(provider, instrumentToken, normalizedSymbol, candle, signal,
+                    decision, finalAnalysis, null);
             if (brokerAttempted) {
                 AutomationSafetyStateEntity state = currentSafetyState();
                 state.markUncertain(safe(error.getMessage()));
@@ -158,6 +187,39 @@ public class AutomatedExecutionService {
             audit.record(eventType, "AUTOMATION_SIGNAL", signalKey,
                     "symbol=" + normalizedSymbol + ", signal=" + signal.type() + ", reason=" + safe(error.getMessage()));
         }
+    }
+
+    private void safeRecord(String provider, long instrumentToken, String symbol,
+                             SignalEngine.Candle candle, SignalEngine.TradeSignal signal,
+                             String decision, String analysis, String orderId) {
+        try {
+            verifications.record(provider, instrumentToken, symbol, candle, signal, decision, analysis, orderId);
+        } catch (RuntimeException error) {
+            audit.record("SIGNAL_VERIFICATION_RECORD_FAILED", "SIGNAL_VERIFICATION",
+                    symbol + "-" + candle.timestamp(), safe(error.getMessage()));
+        }
+    }
+
+    private String describeSignal(SignalEngine.TradeSignal signal) {
+        return "Signal: " + signal.type().name()
+                + "\nReference: " + decimal(signal.referencePrice())
+                + " · VWAP: " + decimal(signal.vwap())
+                + "\nInvalidation: " + decimal(signal.invalidationReference())
+                + " · Opening range: " + decimal(signal.openingRangeLow())
+                + " – " + decimal(signal.openingRangeHigh())
+                + "\nVolume baseline: " + decimal(signal.averageVolume())
+                + " · Required threshold: " + decimal(signal.volumeThreshold())
+                + "\nRationale: " + String.join(" · ", signal.reasons());
+    }
+
+    private String describePreflight(LiveExecutionPreflightService.Preflight result) {
+        return result.checks().stream()
+                .map(check -> (check.passed() ? "PASS " : "BLOCK ") + check.name() + ": " + check.detail())
+                .collect(Collectors.joining("\n"));
+    }
+
+    private String decimal(BigDecimal value) {
+        return value == null ? "—" : value.stripTrailingZeros().toPlainString();
     }
 
     private void require(TradingProfile profile, MarketSessionService sessions, OffsetDateTime now,
