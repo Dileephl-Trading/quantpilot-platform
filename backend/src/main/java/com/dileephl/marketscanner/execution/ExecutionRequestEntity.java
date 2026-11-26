@@ -26,6 +26,7 @@ class ExecutionRequestEntity {
     @Column(length = 16) private String exchange;
     @Column(length = 16) private String validity;
     @Column(nullable = false) private boolean protective;
+    @Column(name = "exit_role", nullable = false, length = 16) private String exitRole;
     @Column(length = 64) private String parentOrderId;
     @Column(nullable = false, columnDefinition = "TEXT") private String message;
     @Column(nullable = false) private OffsetDateTime createdAt;
@@ -39,7 +40,7 @@ class ExecutionRequestEntity {
         e.orderType = request.orderType(); e.price = request.price(); e.triggerPrice = request.triggerPrice(); e.stopPrice = request.stopPrice();
         e.requestFingerprint = BrokerOrderFingerprint.of(request);
         e.product = request.product(); e.exchange = request.exchange(); e.validity = request.validity();
-        e.protective = false; e.parentOrderId = null;
+        e.protective = false; e.exitRole = "ENTRY"; e.parentOrderId = null;
         e.message = response.message() == null ? "" : response.message(); e.createdAt = response.observedAt(); e.updatedAt = response.observedAt();
         return e;
     }
@@ -48,6 +49,16 @@ class ExecutionRequestEntity {
                                                  BrokerOrderResponse response, String parentOrderId) {
         ExecutionRequestEntity entity = from(key, request, response);
         entity.protective = true;
+        entity.exitRole = "STOP";
+        entity.parentOrderId = parentOrderId;
+        return entity;
+    }
+
+    static ExecutionRequestEntity fromTarget(String key, BrokerOrderRequest request,
+                                             BrokerOrderResponse response, String parentOrderId) {
+        ExecutionRequestEntity entity = from(key, request, response);
+        entity.protective = true;
+        entity.exitRole = "TARGET";
         entity.parentOrderId = parentOrderId;
         return entity;
     }
@@ -66,6 +77,7 @@ class ExecutionRequestEntity {
     String side() { return side; }
     String status() { return status; }
     boolean protective() { return protective; }
+    String exitRole() { return exitRole == null ? (protective ? "STOP" : "ENTRY") : exitRole; }
     String parentOrderId() { return parentOrderId; }
     long quantity() { return quantity; }
     long filledQuantity() { return filledQuantity; }
