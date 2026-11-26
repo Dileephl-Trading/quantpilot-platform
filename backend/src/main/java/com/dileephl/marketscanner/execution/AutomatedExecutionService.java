@@ -82,11 +82,9 @@ public class AutomatedExecutionService {
     }
 
     public AutomatedStatus recoverAfterReconciliation() {
-        if (safety.state().killSwitchEnabled()) throw new IllegalStateException("Disable the kill switch only after broker status has been reviewed");
-        execution.reconcileTrackedOrders();
-        if (requests.countByStatusIn(OPEN_STATUSES) > 0) {
-            throw new IllegalStateException("Open or partially filled orders remain; automation stays blocked");
-        }
+        var report = execution.reconcileTrackedOrders();
+        if (!report.issues().isEmpty()) throw new IllegalStateException(String.join("; ", report.issues()));
+        execution.verifyProtection();
         AutomationSafetyStateEntity state = currentSafetyState();
         state.clear();
         safetyStates.save(state);

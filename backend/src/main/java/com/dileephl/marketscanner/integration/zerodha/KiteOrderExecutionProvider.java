@@ -23,7 +23,7 @@ import java.util.List;
 
 /** Kite order adapter. It is feature-gated and never called while routing is disabled. */
 @Component
-public class KiteOrderExecutionProvider implements OrderExecutionProvider {
+public class KiteOrderExecutionProvider implements OrderExecutionProvider, BrokerObservations {
     private static final ZoneOffset INDIA = ZoneOffset.ofHoursMinutes(5, 30);
     private final KiteConnectProperties properties;
     private final KiteAuthService authService;
@@ -35,9 +35,13 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
     }
 
     @Override public BrokerOrderResponse place(BrokerOrderRequest request) {
+        return place(request, null);
+    }
+
+    public BrokerOrderResponse place(BrokerOrderRequest request, String tag) {
         requireRoutingEnabled();
         validate(request);
-        JsonNode data = send("POST", "/orders/regular", form(request, false));
+        JsonNode data = send("POST", "/orders/regular", form(request, false) + (tag == null ? "" : "&tag=" + encode(tag)));
         String orderId = data.path("order_id").asText();
         if (orderId.isBlank()) throw new IllegalStateException("Kite did not return an order id");
         return new BrokerOrderResponse(orderId, request.symbol(), request.side(), request.quantity(), 0,
@@ -45,7 +49,6 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
     }
 
     @Override public BrokerOrderResponse status(String orderId) {
-        requireRoutingEnabled();
         if (orderId == null || orderId.isBlank()) throw new IllegalArgumentException("Order id is required");
         JsonNode data = send("GET", "/orders/" + encode(orderId), "");
         JsonNode latest = data.isArray() && !data.isEmpty() ? data.get(data.size() - 1) : data;
@@ -56,8 +59,7 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
         requireRoutingEnabled();
         if (orderId == null || orderId.isBlank()) throw new IllegalArgumentException("Order id is required");
         JsonNode data = send("DELETE", "/orders/regular/" + encode(orderId), "");
-        return new BrokerOrderResponse(data.path("order_id").asText(orderId), null, null, 0, 0, null,
-                BrokerOrderStatus.CANCELLED, "Cancellation request submitted to Kite", now());
+        return status(data.path("order_id").asText(orderId));
     }
 
     @Override public BrokerOrderResponse modify(String orderId, BrokerOrderRequest request) {
@@ -65,8 +67,7 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
         if (orderId == null || orderId.isBlank()) throw new IllegalArgumentException("Order id is required");
         validate(request);
         JsonNode data = send("PUT", "/orders/regular/" + encode(orderId), form(request, true));
-        return new BrokerOrderResponse(data.path("order_id").asText(orderId), request.symbol(), request.side(), request.quantity(), 0,
-                null, BrokerOrderStatus.PENDING, "Modification request submitted to Kite", now());
+        return status(data.path("order_id").asText(orderId));
     }
 
     @Override public List<BrokerOrderResponse> cancelOpenOrders() {
@@ -86,10 +87,9 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
     }
 
     @Override public List<BrokerPosition> positions() {
-        requireRoutingEnabled();
         JsonNode data = send("GET", "/portfolio/positions", "");
         JsonNode net = data.path("net");
-        if (!net.isArray()) return List.of();
+        if (!net.isArray()) throw new IllegalStateException("Missing broker net positions");
         List<BrokerPosition> positions = new ArrayList<>();
         for (JsonNode row : net) {
             String symbol = row.path("tradingsymbol").asText("");
@@ -102,7 +102,6 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
     }
 
     @Override public List<BrokerTrade> trades(String orderId) {
-        requireRoutingEnabled();
         if (orderId == null || orderId.isBlank()) return List.of();
         JsonNode data = send("GET", "/orders/" + encode(orderId) + "/trades", "");
         if (!data.isArray()) return List.of();
@@ -122,7 +121,6 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
     }
 
     @Override public List<BrokerDayPosition> dayPositions() {
-        requireRoutingEnabled();
         JsonNode data = send("GET", "/portfolio/positions", "");
         JsonNode day = data.path("day");
         if (!day.isArray()) return List.of();
@@ -165,6 +163,28 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider {
             }
         }
         return List.copyOf(submitted);
+    }
+
+    public record BookOrder(String id, String tag, String exchange, String product, String orderType, BrokerOrderResponse state) {}
+    public List<BookOrder> orderBook() {
+        JsonNode rows = send("GET", "/orders", "");
+        if (!rows.isArray()) throw new IllegalStateException("Missing broker order book");
+        List<BookOrder> result = new ArrayList<>();
+        for (JsonNode row : rows) {
+            String id = row.path("order_id").asText("");
+            if (id.isBlank()) throw new IllegalStateException("Broker order without an ID");
+            result.add(new BookOrder(id, row.path("tag").asText(""), row.path("exchange").asText(),
+                    row.path("product").asText(), row.path("order_type").asText(), fromKite(row, id)));
+        }
+        return List.copyOf(result);
+    }
+
+    public BigDecimal lastPrice(String exchange, String symbol) {
+        String instrument = exchange + ":" + symbol;
+        JsonNode row = send("GET", "/quote/ltp?i=" + encode(instrument), "").path(instrument);
+        BigDecimal price = decimalOrNull(row.path("last_price"));
+        if (price == null || price.signum() <= 0) throw new IllegalStateException("Missing last traded price");
+        return price;
     }
 
     private BrokerOrderResponse fromKite(JsonNode row, String orderId) {

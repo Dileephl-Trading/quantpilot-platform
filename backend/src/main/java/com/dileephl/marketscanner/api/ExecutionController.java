@@ -55,7 +55,7 @@ public class ExecutionController {
     public BrokerOrderResponse modify(@PathVariable String orderId, @RequestBody BrokerOrderRequest request) { return orders.modify(orderId, request); }
 
     @PostMapping("/orders/reconcile")
-    public java.util.List<BrokerOrderResponse> reconcile() {
+    public com.dileephl.marketscanner.execution.BrokerReconciliationService.Reconciliation reconcile() {
         return orders.reconcileTrackedOrders();
     }
 

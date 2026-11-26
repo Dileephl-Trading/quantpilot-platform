@@ -442,7 +442,7 @@ function ExecutionConsoleMUI({ profile, status, form, change, orders, busy, setB
   useEffect(() => { apiFetch('/api/v1/automation/status').then(response => response.ok ? response.json() : null).then(setAutomationStatus).catch(() => setAutomationStatus(null)) }, [])
   async function api(path, options) { const response = await apiFetch(path, options); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || 'Execution request failed'); return data }
   async function submit(event) { event.preventDefault(); if (!liveGateReady) { notify({ tone: 'error', text: 'Execution is locked. Enable the live execution flag, routing, LIVE profile mode, and complete Kite login first.' }); return } if (!window.confirm(`Submit ${form.side} ${form.quantity} ${form.symbol}? This can place a real broker order.`)) return; setBusy(true); try { const key = window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random()}`; await api('/api/v1/execution/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify({ ...form, symbol: form.symbol.trim().toUpperCase(), quantity: Number(form.quantity), price: form.price ? Number(form.price) : null, triggerPrice: form.triggerPrice ? Number(form.triggerPrice) : null, stopPrice: form.stopPrice ? Number(form.stopPrice) : null }) }); notify({ tone: 'success', text: 'Order submission accepted by the execution gateway.' }); await refresh() } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) } }
-  async function reconcile() { setBusy(true); try { await api('/api/v1/execution/orders/reconcile', { method: 'POST' }); await refresh(); notify({ tone: 'success', text: 'Tracked order statuses reconciled.' }) } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) } }
+  async function reconcile() { setBusy(true); try { const report = await api('/api/v1/execution/orders/reconcile', { method: 'POST' }); await refresh(); notify(reconciliationNotice(report)) } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) } }
   async function cancel(orderId) { if (!window.confirm(`Cancel broker order ${orderId}?`)) return; setBusy(true); try { await api(`/api/v1/execution/orders/${encodeURIComponent(orderId)}`, { method: 'DELETE' }); await refresh(); notify({ tone: 'success', text: 'Cancellation request submitted.' }) } catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) } }
   const fields = [['symbol', 'NSE symbol', 'text'], ['quantity', 'Quantity', 'number'], ['price', 'Expected entry (₹)', 'number'], ['stopPrice', 'Hard stop (₹)', 'number'], ['triggerPrice', 'Trigger price (optional)', 'number']]
   return <Box sx={{ display: 'grid', gap: 2.5 }}><Alert severity={liveGateReady ? 'success' : 'warning'} variant="outlined" sx={{ borderRadius: '10px' }}><Typography fontWeight={800}>{liveGateReady ? 'Explicit execution gates are open.' : 'Execution is locked.'}</Typography><Typography variant="body2">Every order requires LIVE profile mode, the live execution flag, routing, today’s Kite session, valid risk controls, and confirmation.</Typography><Typography variant="caption" display="block" mt={1}>Automatic signal routing: <b>{automationStatus?.enabled ? 'ENABLED' : 'DISABLED'}</b> · live arming: <b>{automationStatus?.liveExecutionEnabled ? 'ON' : 'OFF'}</b> · max signal age: {automationStatus?.maxSignalAgeSeconds ?? '—'}s · quantity cap: {automationStatus?.maxOrderQuantity ?? '—'} · broker state: <b>{automationStatus?.uncertainBrokerState ? 'RECONCILIATION REQUIRED' : 'READY'}</b></Typography></Alert>
@@ -582,7 +582,7 @@ function ExecutionConsole({ profile, status, form, change, orders, busy, setBusy
   }
   async function reconcile() {
     setBusy(true)
-    try { await api('/api/v1/execution/orders/reconcile', { method: 'POST' }); await refresh(); notify({ tone: 'success', text: 'Tracked order statuses reconciled.' }) }
+    try { const report = await api('/api/v1/execution/orders/reconcile', { method: 'POST' }); await refresh(); notify(reconciliationNotice(report)) }
     catch (error) { notify({ tone: 'error', text: error.message }) } finally { setBusy(false) }
   }
   async function cancel(orderId) {
@@ -1285,7 +1285,7 @@ function PlacedOrdersMUI({ notify }) {
       const response = await apiFetch('/api/v1/execution/orders/reconcile', { method: 'POST' })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || 'Broker reconciliation could not be completed')
-      notify({ tone: 'success', text: 'Broker order statuses and fills reconciled.' })
+      notify(reconciliationNotice(data))
       await load(0)
     } catch (error) {
       notify({ tone: 'error', text: error.message })
@@ -1335,12 +1335,12 @@ function PlacedOrdersMUI({ notify }) {
                 <LifecyclePanel title="PROTECTIVE STOP" subtitle={item.stopOrderId ? `Order ${item.stopOrderId}` : 'Created after entry fill'} status={item.stopStatus} accent="#c3831d">
                   <LifecycleLine label="Trigger" value={moneyPrecise(item.stopTriggerPrice)} />
                   <LifecycleLine label="Filled" value={`${item.stopFilledQuantity || 0} ${item.stopAveragePrice != null ? `@ ${moneyPrecise(item.stopAveragePrice)}` : ''}`} emphasis />
-                  <Typography variant="caption" color="text.secondary">A completed stop cancels the target.</Typography>
+                  <Typography variant="caption" color="text.secondary">The broker holds the protective stop.</Typography>
                 </LifecyclePanel>
-                <LifecyclePanel title="TARGET" subtitle={item.targetOrderId ? `Order ${item.targetOrderId}` : 'Created after entry fill'} status={item.targetStatus} accent="#6750a4">
+                <LifecyclePanel title="TARGET" subtitle={item.targetOrderId ? `Order ${item.targetOrderId}` : 'Monitored by the running supervisor'} status={item.targetStatus} accent="#6750a4">
                   <LifecycleLine label="Limit" value={moneyPrecise(item.targetRequestedPrice)} />
                   <LifecycleLine label="Filled" value={`${item.targetFilledQuantity || 0} ${item.targetAveragePrice != null ? `@ ${moneyPrecise(item.targetAveragePrice)}` : ''}`} emphasis />
-                  <Typography variant="caption" color="text.secondary">A completed target cancels the stop.</Typography>
+                  <Typography variant="caption" color="text.secondary">The supervisor monitors the target and converts the working stop when reached.</Typography>
                 </LifecyclePanel>
               </Box>
 
@@ -1477,3 +1477,9 @@ function Journal({ notify }) {
 }
 
 createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)
+
+function reconciliationNotice(report) {
+  const issues = report.issues || []
+  return { tone: issues.length ? 'warning' : 'success',
+    text: `Checked ${report.checked} broker orders. ${issues.join(' · ')}`.trim() }
+}

@@ -71,7 +71,7 @@ public class LiveOrderRiskService {
                         || profile.exchange().isBlank()
                         || profile.exchange().equalsIgnoreCase(position.exchange()))
                 .toList();
-        long activeRequestCount = requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED")).stream()
+        long activeRequestCount = today.stream().filter(item -> List.of("PENDING", "OPEN", "PARTIALLY_FILLED", "UNKNOWN").contains(item.status()))
                 .filter(item -> !item.protective())
                 .map(ExecutionRequestEntity::symbol)
                 .distinct()
@@ -84,7 +84,7 @@ public class LiveOrderRiskService {
         if (positions.stream().anyMatch(position -> symbol.equalsIgnoreCase(position.symbol()))) {
             reasons.add("A live position already exists for " + symbol);
         }
-        if (requests.existsBySymbolAndStatusIn(symbol, List.of("PENDING", "OPEN", "PARTIALLY_FILLED"))) {
+        if (today.stream().anyMatch(item -> symbol.equalsIgnoreCase(item.symbol()) && List.of("PENDING", "OPEN", "PARTIALLY_FILLED", "UNKNOWN").contains(item.status()))) {
             reasons.add("An active entry order already exists for " + symbol);
         }
 

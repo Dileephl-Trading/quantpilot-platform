@@ -29,7 +29,6 @@ public class SessionCloseoutService {
     private final SafetyService safety;
     private final AuditTrailService audit;
     private LocalDate lastCancelDate;
-    private LocalDate lastSquareOffDate;
     private LocalDate lastDeadlineDate;
 
     public SessionCloseoutService(MarketSessionService sessions, TradingProfileService profiles,
@@ -49,22 +48,15 @@ public class SessionCloseoutService {
         LocalDate date = now.toLocalDate();
         if (sessions.isCancelPendingDue(now) && !date.equals(lastCancelDate)) {
             try {
-                execution.cancelTrackedOpenOrders();
+                execution.cancelTrackedOpenOrdersForSafety();
                 lastCancelDate = date;
                 audit.record("SESSION_PENDING_ENTRIES_CANCELLED", "TRADING_SAFETY", "GLOBAL", "cutoff=14:55");
             } catch (RuntimeException error) {
                 audit.record("SESSION_PENDING_CANCEL_FAILED", "TRADING_SAFETY", "GLOBAL", error.getMessage());
             }
         }
-        if (sessions.isSquareOffDue(now) && !date.equals(lastSquareOffDate)) {
-            try {
-                execution.squareOffPositionsForSafety();
-                // One square-off request per session avoids duplicate market
-                // exits while the broker is still processing the first one.
-                lastSquareOffDate = date;
-            } catch (RuntimeException error) {
-                audit.record("SESSION_SQUARE_OFF_RETRY", "TRADING_SAFETY", "GLOBAL", error.getMessage());
-            }
+        if (sessions.isSquareOffDue(now)) {
+            execution.manageProtection(true);
         }
         if (sessions.isHardFlatDeadline(now) && !date.equals(lastDeadlineDate)) {
             try {
@@ -75,7 +67,7 @@ public class SessionCloseoutService {
                                 || profile.product().equalsIgnoreCase(position.product()))
                         .toList();
                 if (!remaining.isEmpty()) {
-                    execution.squareOffPositionsForSafety();
+                    execution.manageProtection(true);
                     audit.record("SESSION_HARD_FLAT_RETRY_SUBMITTED", "TRADING_SAFETY", "GLOBAL",
                             "remainingPositions=" + remaining.size());
                 }
@@ -84,7 +76,6 @@ public class SessionCloseoutService {
             } finally {
                 lastDeadlineDate = date;
             }
-            safety.enable("Hard flat deadline reached; live automation remains blocked until positions are reviewed");
             audit.record("SESSION_HARD_FLAT_DEADLINE_REACHED", "TRADING_SAFETY", "GLOBAL", "deadline=15:03");
         }
     }

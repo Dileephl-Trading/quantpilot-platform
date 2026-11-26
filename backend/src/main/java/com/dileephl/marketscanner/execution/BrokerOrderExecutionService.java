@@ -36,7 +36,8 @@ public class BrokerOrderExecutionService {
     private final LiveExecutionProperties liveExecutionProperties;
     private final AutomatedExecutionProperties automationProperties;
     private final MarketInstrumentRepository instruments;
-    private final ExecutionTradeRepository trades;
+    private final BrokerReconciliationService reconciliation;
+    private final SubmissionJournal journal;
 
     public BrokerOrderExecutionService(TradingProfileService profiles, ExecutionPreviewService previews, KiteOrderExecutionProvider provider, SafetyService safety,
                                        ExecutionRequestRepository requests, ExecutionOrderEventRepository events, AuditTrailService audit,
@@ -44,21 +45,20 @@ public class BrokerOrderExecutionService {
                                        LiveExecutionProperties liveExecutionProperties,
                                        AutomatedExecutionProperties automationProperties,
                                        MarketInstrumentRepository instruments,
-                                       ExecutionTradeRepository trades) {
+                                       BrokerReconciliationService reconciliation, SubmissionJournal journal) {
         this.profiles = profiles; this.previews = previews; this.provider = provider; this.safety = safety; this.requests = requests; this.events = events; this.audit = audit;
         this.liveRisk = liveRisk; this.kiteProperties = kiteProperties;
         this.liveExecutionProperties = liveExecutionProperties;
         this.automationProperties = automationProperties;
         this.instruments = instruments;
-        this.trades = trades;
+        this.reconciliation = reconciliation;
+        this.journal = journal;
     }
 
     @Transactional
     public synchronized BrokerOrderResponse place(String idempotencyKey, BrokerOrderRequest request) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) throw new IllegalArgumentException("Idempotency-Key header is required");
-        requireLive();
         validateRequest(request);
-        validateRisk(request);
         String symbol = request.symbol().trim().toUpperCase();
         String key = idempotencyKey.trim();
         return requests.findByIdempotencyKey(key).map(existing -> {
@@ -68,17 +68,26 @@ public class BrokerOrderExecutionService {
             audit.record("BROKER_ORDER_IDEMPOTENT_REPLAY", "EXECUTION_REQUEST", existing.response().orderId(), "key=" + key);
             return existing.response();
         }).orElseGet(() -> {
-            if (requests.existsBySymbolAndSideAndStatusIn(symbol, request.side().name(), List.of("PENDING", "OPEN"))) {
-                throw new IllegalStateException("An active broker order already exists for " + symbol + " " + request.side());
-            }
+            requireLive();
+            validateRisk(request);
+            if (journal.hasUnresolvedOtherThan(key)) throw new IllegalStateException("Unconfirmed broker submission requires reconciliation");
+            verifyProtection();
             LiveOrderRiskService.RiskCheck risk = liveRisk.verify(request, java.time.OffsetDateTime.now(java.time.ZoneId.of("Asia/Kolkata")));
             if (!risk.allowed()) throw new IllegalStateException("Live order blocked by safety checks: " + String.join("; ", risk.reasons()));
-            BrokerOrderResponse response = provider.place(request);
+            BrokerOrderResponse response = submit(key, request, null);
             requests.save(ExecutionRequestEntity.from(key, request, response));
             events.save(ExecutionOrderEventEntity.from(response));
             audit.record("BROKER_ORDER_SUBMITTED", "BROKER_ORDER", response.orderId(), "symbol=" + request.symbol() + ", quantity=" + request.quantity());
             return response;
         });
+    }
+
+    private BrokerOrderResponse submit(String key, BrokerOrderRequest request, String parent) {
+        SubmissionJournal.Reservation intent = journal.reserve(key, request, parent);
+        if (intent.fresh()) return provider.place(request, intent.tag());
+        var matches = provider.orderBook().stream().filter(row -> intent.tag().equals(row.tag())).toList();
+        if (matches.size() == 1) return matches.get(0).state();
+        throw new IllegalStateException("Previous submission requires broker confirmation: " + intent.tag());
     }
 
     /**
@@ -101,7 +110,7 @@ public class BrokerOrderExecutionService {
             }
             return existing.response();
         }).orElseGet(() -> {
-            BrokerOrderResponse response = provider.place(request);
+            BrokerOrderResponse response = submit(key, request, parentOrderId);
             requests.save(ExecutionRequestEntity.fromProtective(key, request, response, parentOrderId));
             events.save(ExecutionOrderEventEntity.from(response));
             audit.record("PROTECTIVE_ORDER_SUBMITTED", "BROKER_ORDER", response.orderId(),
@@ -111,56 +120,12 @@ public class BrokerOrderExecutionService {
     }
 
 
-    @Transactional
-    synchronized BrokerOrderResponse placeTarget(String idempotencyKey, BrokerOrderRequest request,
-                                                  String parentOrderId) {
-        requireLiveForProtective();
-        if (parentOrderId == null || parentOrderId.isBlank()) throw new IllegalArgumentException("Parent order id is required");
-        validateTargetRequest(request);
-        String key = idempotencyKey == null ? "" : idempotencyKey.trim();
-        if (key.isBlank()) throw new IllegalArgumentException("Target idempotency key is required");
-        return requests.findByIdempotencyKey(key).map(existing -> {
-            if (!existing.matches(request)) {
-                throw new IllegalArgumentException("Target idempotency key was already used for a different order payload");
-            }
-            return existing.response();
-        }).orElseGet(() -> {
-            BrokerOrderResponse response = provider.place(request);
-            requests.save(ExecutionRequestEntity.fromTarget(key, request, response, parentOrderId));
-            events.save(ExecutionOrderEventEntity.from(response));
-            audit.record("TARGET_ORDER_SUBMITTED", "BROKER_ORDER", response.orderId(),
-                    "parentOrderId=" + parentOrderId + ", symbol=" + request.symbol()
-                            + ", quantity=" + request.quantity() + ", price=" + request.price());
-            return response;
-        });
-    }
-
-    @Transactional
-    synchronized BrokerOrderResponse modifyProtective(String orderId, BrokerOrderRequest request) {
-        requireLiveForProtective();
-        ExecutionRequestEntity tracked = requireTracked(orderId);
-        if (!tracked.protective()) throw new IllegalArgumentException("Only a protective order can be modified by this path");
-        validateProtectiveRequest(request);
-        return persist(provider.modify(orderId, request), "PROTECTIVE_ORDER_MODIFIED");
-    }
-
-
-    @Transactional
-    synchronized BrokerOrderResponse modifyTarget(String orderId, BrokerOrderRequest request) {
-        requireLiveForProtective();
-        ExecutionRequestEntity tracked = requireTracked(orderId);
-        if (!"TARGET".equals(tracked.exitRole())) throw new IllegalArgumentException("Only a target order can be modified by this path");
-        validateTargetRequest(request);
-        return persist(provider.modify(orderId, request), "TARGET_ORDER_MODIFIED");
-    }
-
     public java.util.List<BrokerPosition> currentPositions() {
         requireLiveForProtective();
         return provider.positions();
     }
     @Transactional
     public BrokerOrderResponse status(String orderId) {
-        requireLive();
         requireTracked(orderId);
         return persist(provider.status(orderId), "BROKER_ORDER_STATUS_RECONCILED");
     }
@@ -179,19 +144,11 @@ public class BrokerOrderExecutionService {
         return persist(provider.modify(orderId, request), "BROKER_ORDER_MODIFY_REQUESTED");
     }
     @Transactional
-    public java.util.List<BrokerOrderResponse> cancelOpenOrders() {
-        if (profiles.current().mode() != TradingMode.LIVE) {
-            throw new IllegalStateException("Open-order cancellation requires explicit LIVE trading mode");
-        }
-        requireLive();
-        return provider.cancelOpenOrders().stream().map(response -> persist(response, "BROKER_ORDER_CANCEL_REQUESTED")).toList();
-    }
-
-    @Transactional
     public java.util.List<BrokerOrderResponse> cancelTrackedOpenOrders() {
         requireLive();
         java.util.List<BrokerOrderResponse> responses = new java.util.ArrayList<>();
-        for (ExecutionRequestEntity request : requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED"))) {
+        for (ExecutionRequestEntity request : today()) {
+            if (!working(request.response()) || request.protective()) continue;
             responses.add(cancel(request.orderId()));
         }
         return java.util.List.copyOf(responses);
@@ -202,7 +159,8 @@ public class BrokerOrderExecutionService {
     public java.util.List<BrokerOrderResponse> cancelTrackedOpenOrdersForSafety() {
         if (profiles.current().mode() != TradingMode.LIVE) return java.util.List.of();
         java.util.List<BrokerOrderResponse> responses = new java.util.ArrayList<>();
-        for (ExecutionRequestEntity request : requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED"))) {
+        for (ExecutionRequestEntity request : today()) {
+            if (request.protective() || !working(request.response())) continue;
             try {
                 responses.add(persist(provider.cancel(request.orderId()), "BROKER_ORDER_EMERGENCY_CANCEL_REQUESTED"));
             } catch (RuntimeException error) {
@@ -212,29 +170,17 @@ public class BrokerOrderExecutionService {
         return java.util.List.copyOf(responses);
     }
 
-    /** Closes current MIS net positions during the scheduled end-of-day safety window. */
-    @Transactional
-    public java.util.List<BrokerOrderResponse> squareOffPositionsForSafety() {
-        if (profiles.current().mode() != TradingMode.LIVE) return java.util.List.of();
-        try {
-            java.util.List<BrokerOrderResponse> responses = provider.squareOffPositions();
-            audit.record("BROKER_POSITION_SQUARE_OFF_REQUESTED", "TRADING_SAFETY", "GLOBAL",
-                    "count=" + responses.size());
-            return responses;
-        } catch (RuntimeException error) {
-            audit.record("BROKER_POSITION_SQUARE_OFF_FAILED", "TRADING_SAFETY", "GLOBAL", error.getMessage());
-            throw error;
-        }
+    public BrokerReconciliationService.Reconciliation reconcileTrackedOrders() {
+        return reconciliation.reconcileTrackedOrders();
     }
 
-    @Transactional
-    public java.util.List<BrokerOrderResponse> reconcileTrackedOrders() {
-        requireLive();
-        java.util.List<BrokerOrderResponse> responses = new java.util.ArrayList<>();
-        for (ExecutionRequestEntity request : reconciliationCandidates()) {
-            responses.add(reconcile(request));
-        }
-        return java.util.List.copyOf(responses);
+    static OffsetDateTime sessionStart() {
+        return java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+                .atStartOfDay(java.time.ZoneId.of("Asia/Kolkata")).toOffsetDateTime();
+    }
+
+    private List<ExecutionRequestEntity> today() {
+        return requests.findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(sessionStart());
     }
 
     @Transactional(readOnly = true)
@@ -322,15 +268,6 @@ public class BrokerOrderExecutionService {
         }
     }
 
-    private void validateTargetRequest(BrokerOrderRequest request) {
-        if (request == null || request.symbol() == null || request.symbol().isBlank()
-                || request.side() == null || request.quantity() <= 0
-                || request.price() == null || request.price().signum() <= 0
-                || !"LIMIT".equalsIgnoreCase(request.orderType())) {
-            throw new IllegalArgumentException("A target LIMIT order requires symbol, side, quantity and positive price");
-        }
-    }
-
     private void requireLiveForProtective() {
         if (profiles.current().mode() != TradingMode.LIVE) {
             throw new IllegalStateException("Protective broker orders require explicit LIVE trading mode");
@@ -347,174 +284,114 @@ public class BrokerOrderExecutionService {
         return requests.findByOrderId(orderId).orElseThrow(() -> new IllegalArgumentException("Order is not tracked by this application"));
     }
 
-    @Transactional
-    synchronized BrokerOrderResponse reconcile(ExecutionRequestEntity request) {
-        BrokerOrderResponse response = provider.status(request.orderId());
-        BrokerOrderResponse persisted = persist(response, "BROKER_ORDER_STATUS_POLLED");
-        if (request.protective()) {
-            reconcileExitPair(request.parentOrderId());
-            reconcileOutcome(request.parentOrderId());
-        } else {
-            ensureExitOrders(request, persisted);
-            reconcileOutcome(request.orderId());
-        }
-        return persisted;
+    private static boolean working(BrokerOrderResponse order) {
+        return switch (order.status()) {
+            case COMPLETE, CANCELLED, REJECTED -> false;
+            default -> true;
+        };
     }
 
-    private List<ExecutionRequestEntity> reconciliationCandidates() {
-        Map<String, ExecutionRequestEntity> candidates = new LinkedHashMap<>();
-        requests.findByStatusIn(List.of("PENDING", "OPEN", "PARTIALLY_FILLED"))
-                .forEach(item -> candidates.put(item.orderId(), item));
-        // Completed entries must remain eligible: a restart can happen after
-        // the entry filled but before the stop/target or fill reconciliation ran.
-        for (ExecutionRequestEntity entry : requests.findByProtectiveFalseAndStatusIn(
-                List.of("COMPLETE", "PARTIALLY_FILLED"))) {
-            boolean missingProtection = requests.findByParentOrderIdAndExitRole(entry.orderId(), "STOP").isEmpty()
-                    || requests.findByParentOrderIdAndExitRole(entry.orderId(), "TARGET").isEmpty();
-            boolean outcomeIncomplete = entry.realisedPnl() == null
-                    || (entry.filledQuantity() > 0 && entry.exitFilledQuantity() < entry.filledQuantity());
-            if (missingProtection || outcomeIncomplete) candidates.put(entry.orderId(), entry);
-        }
-        return List.copyOf(candidates.values());
+    static boolean sameInstrument(ExecutionRequestEntity entry, String symbol, String exchange, String product) {
+        return entry.symbol().equalsIgnoreCase(symbol)
+                && java.util.Objects.toString(entry.exchange(), "NSE").equalsIgnoreCase(exchange)
+                && java.util.Objects.toString(entry.product(), "MIS").equalsIgnoreCase(product);
     }
 
-    /**
-     * Pulls broker fills and the day position snapshot after an entry/exit
-     * changes.  Local fill P&L is always retained; the broker value is shown
-     * separately because Kite may aggregate several trades for one symbol.
-     */
-    private void reconcileOutcome(String parentOrderId) {
-        if (parentOrderId == null || parentOrderId.isBlank()) return;
-        ExecutionRequestEntity parent = requests.findByOrderId(parentOrderId).orElse(null);
-        if (parent == null || parent.protective()) return;
-        ExecutionRequestEntity stop = requests.findByParentOrderIdAndExitRole(parentOrderId, "STOP").orElse(null);
-        ExecutionRequestEntity target = requests.findByParentOrderIdAndExitRole(parentOrderId, "TARGET").orElse(null);
-        if (stop == null && target == null) return;
-
-        try {
-            upsertTrades(provider.trades(parent.orderId()));
-            if (stop != null) upsertTrades(provider.trades(stop.orderId()));
-            if (target != null) upsertTrades(provider.trades(target.orderId()));
-
-            List<BrokerTrade> entryTrades = trades.findByOrderIdOrderByFillTimestampAsc(parent.orderId())
-                    .stream().map(ExecutionTradeEntity::view).toList();
-            List<BrokerTrade> exitTrades = new ArrayList<>();
-            if (stop != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(stop.orderId()).stream().map(ExecutionTradeEntity::view).toList());
-            if (target != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(target.orderId()).stream().map(ExecutionTradeEntity::view).toList());
-            if (entryTrades.isEmpty() || exitTrades.isEmpty()) return;
-
-            ExecutionPnlCalculator.Result result = ExecutionPnlCalculator.calculate(
-                    OrderSide.valueOf(parent.side()), entryTrades, exitTrades);
-            if (result == null) return;
-
-            BigDecimal brokerPnl = null;
-            String source = "TRADE_FILLS";
-            try {
-                brokerPnl = provider.dayPositions().stream()
-                        .filter(position -> parent.symbol().equalsIgnoreCase(position.symbol()))
-                        .filter(position -> parent.exchange() == null || parent.exchange().isBlank()
-                                || parent.exchange().equalsIgnoreCase(position.exchange()))
-                        .filter(position -> parent.product() == null || parent.product().isBlank()
-                                || parent.product().equalsIgnoreCase(position.product()))
-                        .map(BrokerDayPosition::realisedPnl)
-                        .filter(value -> value != null)
-                        .findFirst().orElse(null);
-                if (brokerPnl != null) source = "BROKER_POSITION";
-            } catch (RuntimeException brokerError) {
-                audit.record("BROKER_PNL_RECONCILIATION_FAILED", "BROKER_ORDER", parent.orderId(), brokerError.getMessage());
-            }
-            OffsetDateTime observedAt = OffsetDateTime.now(ZoneOffset.ofHoursMinutes(5, 30));
-            parent.updateOutcome(result, brokerPnl, source, observedAt);
-            requests.save(parent);
-            audit.record("BROKER_ORDER_PNL_RECONCILED", "BROKER_ORDER", parent.orderId(),
-                    "exitQuantity=" + result.matchedQuantity() + ", exitAveragePrice=" + result.exitAveragePrice()
-                            + ", realisedPnl=" + result.realisedPnl() + ", source=" + source);
-        } catch (RuntimeException error) {
-            // P&L display is best effort; it must never stop protective-order polling.
-            audit.record("BROKER_PNL_RECONCILIATION_FAILED", "BROKER_ORDER", parent.orderId(), error.getMessage());
+    void verifyProtection() {
+        var positions = provider.positions();
+        var book = provider.orderBook();
+        for (var row : today()) {
+            if (row.protective()) continue;
+            var outstanding = book.stream().filter(o -> requests.findByOrderId(o.id())
+                    .map(child -> row.orderId().equals(child.parentOrderId())).orElse(false) && working(o.state())).toList();
+            long net = positions.stream().filter(p -> sameInstrument(row, p.symbol(), p.exchange(), p.product()))
+                    .mapToLong(BrokerPosition::quantity).sum();
+            if (net == 0 && outstanding.isEmpty()) continue;
+            if (row.filledQuantity() <= row.exitFilledQuantity() && outstanding.isEmpty()) continue;
+            if (outstanding.size() != 1 || !outstanding.get(0).orderType().startsWith("SL")
+                    || outstanding.get(0).state().status() == BrokerOrderStatus.UNKNOWN
+                    || outstanding.get(0).state().side() != (net > 0 ? OrderSide.SELL : OrderSide.BUY)
+                    || outstanding.get(0).state().quantity() - outstanding.get(0).state().filledQuantity() != Math.abs(net))
+                throw new IllegalStateException("Review outstanding protection for " + row.symbol());
         }
     }
 
-    private void upsertTrades(List<BrokerTrade> brokerTrades) {
-        if (brokerTrades == null) return;
-        for (BrokerTrade trade : brokerTrades) {
-            if (trade == null || trade.tradeId() == null || trade.tradeId().isBlank()
-                    || trade.quantity() <= 0 || trade.averagePrice() == null) continue;
-            ExecutionTradeEntity entity = trades.findByTradeId(trade.tradeId()).orElseGet(() -> ExecutionTradeEntity.from(trade));
-            if (entity.tradeId().equals(trade.tradeId())) entity.apply(trade);
-            trades.save(entity);
+    // Only the supervisor may manage protection. Keep one executable exit at the
+    // exchange. A target or session close converts that same stop to a market exit.
+    public synchronized void manageProtection(boolean sessionClose) {
+        requireLiveForProtective();
+        for (var entry : today()) {
+            if (entry.protective() || entry.filledQuantity() == 0) continue;
+            try { manageEntry(entry, sessionClose); }
+            catch (RuntimeException error) {
+                audit.record("PROTECTION_REVIEW_REQUIRED", "BROKER_ORDER", entry.orderId(), error.getMessage());
+            }
         }
     }
 
-    private void ensureExitOrders(ExecutionRequestEntity parent, BrokerOrderResponse response) {
-        if (response == null || response.filledQuantity() <= 0
-                || (response.status() != BrokerOrderStatus.COMPLETE
-                && response.status() != BrokerOrderStatus.PARTIALLY_FILLED
-                && response.status() != BrokerOrderStatus.CANCELLED
-                && response.status() != BrokerOrderStatus.UNKNOWN)) return;
-        if (parent.stopPrice() == null || parent.stopPrice().signum() <= 0) {
-            failExitProtection(parent.orderId(), "STOP", "Parent entry has no positive protective stop");
+    private void manageEntry(ExecutionRequestEntity entry, boolean sessionClose) {
+        var book = provider.orderBook().stream()
+                .filter(o -> sameInstrument(entry, o.state().symbol(), o.exchange(), o.product())).toList();
+        var parent = book.stream().filter(o -> o.id().equals(entry.orderId())).findFirst().orElse(null);
+        if (parent == null) return;
+        var stop = requests.findByParentOrderIdAndExitRole(entry.orderId(), "STOP").orElse(null);
+        var target = requests.findByParentOrderIdAndExitRole(entry.orderId(), "TARGET").orElse(null);
+        var stopRow = book.stream().filter(o -> stop != null && stop.orderId().equals(o.id())).findFirst().orElse(null);
+        var targetRow = book.stream().filter(o -> target != null && target.orderId().equals(o.id())).findFirst().orElse(null);
+        if (stop != null && stopRow == null || target != null && targetRow == null) return;
+        if (targetRow != null && working(targetRow.state())) {
+            if ("LIMIT".equals(targetRow.orderType()) && stopRow != null && working(stopRow.state()))
+                provider.cancel(targetRow.id()); // migrate legacy dual exits; await broker confirmation
             return;
         }
+        var pos = provider.positions().stream().filter(p -> sameInstrument(entry, p.symbol(), p.exchange(), p.product())).findFirst();
+        long net = pos.map(BrokerPosition::quantity).orElse(0L);
+        if (net == 0) {
+            if (stopRow != null && working(stopRow.state())) provider.cancel(stopRow.id());
+            return;
+        }
+        long ownedRemaining = parent.state().filledQuantity()
+                - (stopRow == null ? 0 : stopRow.state().filledQuantity())
+                - (targetRow == null ? 0 : targetRow.state().filledQuantity());
+        long remaining = Math.abs(net);
+        // Shared or externally edited positions need explicit attribution.
+        if (ownedRemaining != remaining || (net > 0) != "BUY".equals(entry.side())
+                || book.stream().anyMatch(o -> !o.id().equals(entry.orderId())
+                    && (stop == null || !o.id().equals(stop.orderId()))
+                    && (target == null || !o.id().equals(target.orderId()))
+                    && (working(o.state()) || o.state().filledQuantity() > 0)
+                    && requests.findByOrderId(o.id()).map(r -> !completedLifecycle(r)).orElse(true))) return;
+        OrderSide side = net > 0 ? OrderSide.SELL : OrderSide.BUY;
+        if (stopRow != null && working(stopRow.state()) && ("MARKET".equals(stopRow.orderType())
+                || stopRow.state().status() == BrokerOrderStatus.UNKNOWN)) return;
+        boolean close = sessionClose && "MIS".equalsIgnoreCase(entry.product());
+        if (!close && stopRow != null && working(stopRow.state())) {
+            BigDecimal limit = targetRequest(entry, parent.state(), side).price();
+            int comparison = provider.lastPrice(entry.exchange(), entry.symbol()).compareTo(limit);
+            close = net > 0 ? comparison >= 0 : comparison <= 0;
+        }
+        if (stopRow != null && working(stopRow.state())) {
+            long total = remaining + stopRow.state().filledQuantity();
+            if (!close && total == stopRow.state().quantity()) return;
+            var change = new BrokerOrderRequest(entry.symbol(), side, total, close ? "MARKET" : "SL-M",
+                    null, close ? null : entry.stopPrice(), entry.product(), entry.exchange(), "DAY", entry.stopPrice());
+            provider.modify(stopRow.id(), change);
+        } else if (close && target == null) {
+            var exit = new BrokerOrderRequest(entry.symbol(), side, remaining, "MARKET", null, null,
+                    entry.product(), entry.exchange(), "DAY", null);
+            String key = "CLOSE-" + entry.orderId();
+            var result = submit(key, exit, entry.orderId());
+            requests.save(ExecutionRequestEntity.fromTarget(key, exit, result, entry.orderId()));
+        } else if (stop == null) {
+            placeProtective("PROTECTIVE-" + entry.orderId(), new BrokerOrderRequest(entry.symbol(), side, remaining,
+                    "SL-M", null, entry.stopPrice(), entry.product(), entry.exchange(), "DAY", entry.stopPrice()), entry.orderId());
+        }
+    }
 
-        ExecutionRequestEntity stop = requests.findByParentOrderIdAndExitRole(parent.orderId(), "STOP").orElse(null);
-        ExecutionRequestEntity target = requests.findByParentOrderIdAndExitRole(parent.orderId(), "TARGET").orElse(null);
-        if (stop != null && "COMPLETE".equals(stop.status())) {
-            reconcileExitPair(parent.orderId());
-            return;
-        }
-        if (target != null && "COMPLETE".equals(target.status())) {
-            reconcileExitPair(parent.orderId());
-            return;
-        }
-        if (stop != null && failedExit(stop)) {
-            failExitProtection(parent.orderId(), "STOP", "Protective stop is " + stop.status());
-            return;
-        }
-        if (target != null && failedExit(target)) {
-            failExitProtection(parent.orderId(), "TARGET", "Target order is " + target.status());
-            return;
-        }
-
-        OrderSide exitSide = "BUY".equalsIgnoreCase(parent.side()) ? OrderSide.SELL : OrderSide.BUY;
-        long filledQuantity = response.filledQuantity();
-        if (stop == null) {
-            BrokerOrderRequest protective = new BrokerOrderRequest(parent.symbol(), exitSide, filledQuantity,
-                    "SL-M", null, parent.stopPrice(), parent.product(), parent.exchange(), "DAY", parent.stopPrice());
-            try {
-                placeProtective("PROTECTIVE-" + parent.orderId(), protective, parent.orderId());
-            } catch (RuntimeException error) {
-                failExitProtection(parent.orderId(), "STOP", error.getMessage());
-                return;
-            }
-        } else if (openExit(stop) && stop.quantity() != filledQuantity) {
-            BrokerOrderRequest protective = new BrokerOrderRequest(parent.symbol(), exitSide, filledQuantity,
-                    "SL-M", null, parent.stopPrice(), parent.product(), parent.exchange(), "DAY", parent.stopPrice());
-            try {
-                modifyProtective(stop.orderId(), protective);
-            } catch (RuntimeException error) {
-                failExitProtection(parent.orderId(), "STOP", error.getMessage());
-                return;
-            }
-        }
-
-        target = requests.findByParentOrderIdAndExitRole(parent.orderId(), "TARGET").orElse(null);
-        if (target == null) {
-            try {
-                placeTarget("TARGET-" + parent.orderId(), targetRequest(parent, response, exitSide), parent.orderId());
-            } catch (RuntimeException error) {
-                failExitProtection(parent.orderId(), "TARGET", error.getMessage());
-                return;
-            }
-        } else if (openExit(target) && target.quantity() != filledQuantity) {
-            try {
-                modifyTarget(target.orderId(), targetRequest(parent, response, exitSide));
-            } catch (RuntimeException error) {
-                failExitProtection(parent.orderId(), "TARGET", error.getMessage());
-                return;
-            }
-        }
-        reconcileExitPair(parent.orderId());
+    private boolean completedLifecycle(ExecutionRequestEntity order) {
+        var parent = order.protective() ? requests.findByOrderId(order.parentOrderId()).orElse(null) : order;
+        return parent != null && parent.filledQuantity() > 0 && parent.filledQuantity() == parent.exitFilledQuantity()
+                && !working(order.response());
     }
 
     private BrokerOrderRequest targetRequest(ExecutionRequestEntity parent, BrokerOrderResponse response,
@@ -546,63 +423,6 @@ public class BrokerOrderExecutionService {
         if (tick == null || tick.signum() <= 0) return rawTarget.setScale(2, RoundingMode.HALF_UP);
         RoundingMode rounding = "BUY".equalsIgnoreCase(parent.side()) ? RoundingMode.DOWN : RoundingMode.UP;
         return rawTarget.divide(tick, 0, rounding).multiply(tick).stripTrailingZeros();
-    }
-
-    private void reconcileExitPair(String parentOrderId) {
-        if (parentOrderId == null || parentOrderId.isBlank()) return;
-        ExecutionRequestEntity stop = requests.findByParentOrderIdAndExitRole(parentOrderId, "STOP").orElse(null);
-        ExecutionRequestEntity target = requests.findByParentOrderIdAndExitRole(parentOrderId, "TARGET").orElse(null);
-        if (stop == null || target == null) return;
-
-        if ("COMPLETE".equals(stop.status())) {
-            cancelExitIfOpen(target);
-            return;
-        }
-        if ("COMPLETE".equals(target.status())) {
-            cancelExitIfOpen(stop);
-            return;
-        }
-        if (failedExit(stop)) {
-            failExitProtection(parentOrderId, "STOP", "Protective stop is " + stop.status());
-            return;
-        }
-        if (failedExit(target)) {
-            failExitProtection(parentOrderId, "TARGET", "Target order is " + target.status());
-        }
-    }
-
-    private void cancelExitIfOpen(ExecutionRequestEntity exit) {
-        if (!openExit(exit)) return;
-        try {
-            persist(provider.cancel(exit.orderId()), "EXIT_OCO_CANCEL_REQUESTED");
-        } catch (RuntimeException error) {
-            audit.record("EXIT_OCO_CANCEL_FAILED", "BROKER_ORDER", exit.orderId(), error.getMessage());
-        }
-    }
-
-    private boolean openExit(ExecutionRequestEntity request) {
-        return request != null && List.of("PENDING", "OPEN", "PARTIALLY_FILLED").contains(request.status());
-    }
-
-    private boolean failedExit(ExecutionRequestEntity request) {
-        return request != null && List.of("REJECTED", "CANCELLED", "UNKNOWN").contains(request.status());
-    }
-
-    private void failExitProtection(String parentOrderId, String exitRole, String reason) {
-        String detail = reason == null || reason.isBlank() ? "unknown exit-protection failure" : reason;
-        audit.record("PROTECTIVE_ORDER_FAILED", "BROKER_ORDER", parentOrderId,
-                "exitRole=" + exitRole + ", " + detail);
-        try {
-            provider.squareOffPositions();
-        } catch (RuntimeException squareOffError) {
-            audit.record("PROTECTIVE_FAILSAFE_SQUARE_OFF_FAILED", "TRADING_SAFETY", "GLOBAL", squareOffError.getMessage());
-        }
-        try {
-            safety.enable("Exit protection failed for parent order " + parentOrderId
-                    + " (" + exitRole + "): " + detail);
-        } catch (RuntimeException safetyError) {
-            audit.record("PROTECTIVE_FAILSAFE_KILL_SWITCH_FAILED", "TRADING_SAFETY", "GLOBAL", safetyError.getMessage());
-        }
     }
 
     private BrokerOrderResponse persist(BrokerOrderResponse response, String eventType) {
