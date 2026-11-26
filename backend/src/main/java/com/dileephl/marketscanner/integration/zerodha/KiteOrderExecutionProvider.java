@@ -192,6 +192,8 @@ public class KiteOrderExecutionProvider implements OrderExecutionProvider, Broke
         long filledQuantity = row.path("filled_quantity").asLong(0);
         BrokerOrderStatus mapped = switch (status) {
             case "OPEN", "TRIGGER PENDING" -> filledQuantity > 0 ? BrokerOrderStatus.PARTIALLY_FILLED : BrokerOrderStatus.OPEN;
+            case "PUT ORDER REQ RECEIVED", "VALIDATION PENDING", "OPEN PENDING", "MODIFY VALIDATION PENDING",
+                    "MODIFY PENDING", "CANCEL PENDING", "AMO REQ RECEIVED" -> BrokerOrderStatus.PENDING;
             case "COMPLETE" -> BrokerOrderStatus.COMPLETE;
             case "CANCELLED" -> BrokerOrderStatus.CANCELLED;
             case "REJECTED" -> BrokerOrderStatus.REJECTED;

@@ -54,4 +54,17 @@ class ExitSupervisionTest {
         verify(broker, never()).squareOffPositions();
         verify(broker, never()).place(any(), anyString());
     }
+
+    @Test void retryWithDurableReservationNeverResubmitsAnUnconfirmedStop() {
+        when(profiles.current().mode()).thenReturn(TradingMode.LIVE);
+        when(kite.isOrderRoutingEnabled()).thenReturn(true);
+        var request = new BrokerOrderRequest("SBIN", OrderSide.SELL, 10, "SL-M", null,
+                BigDecimal.ONE, "MIS", "NSE", "DAY", BigDecimal.ONE);
+        when(journal.reserve("stop-key", request, "entry"))
+                .thenReturn(new SubmissionJournal.Reservation("knownTag", false));
+        when(broker.orderBook()).thenReturn(List.of());
+        assertThrows(IllegalStateException.class, () -> execution.placeProtective("stop-key", request, "entry"));
+        verify(broker).orderBook();
+        verifyNoMoreInteractions(broker);
+    }
 }

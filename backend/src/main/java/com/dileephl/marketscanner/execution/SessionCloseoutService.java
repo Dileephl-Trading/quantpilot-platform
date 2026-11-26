@@ -26,17 +26,16 @@ public class SessionCloseoutService {
     private final KiteConnectProperties kite;
     private final KiteAuthService auth;
     private final BrokerOrderExecutionService execution;
-    private final SafetyService safety;
     private final AuditTrailService audit;
     private LocalDate lastCancelDate;
     private LocalDate lastDeadlineDate;
 
     public SessionCloseoutService(MarketSessionService sessions, TradingProfileService profiles,
                                   KiteConnectProperties kite, KiteAuthService auth,
-                                  BrokerOrderExecutionService execution, SafetyService safety,
+                                  BrokerOrderExecutionService execution,
                                   AuditTrailService audit) {
         this.sessions = sessions; this.profiles = profiles; this.kite = kite; this.auth = auth;
-        this.execution = execution; this.safety = safety; this.audit = audit;
+        this.execution = execution; this.audit = audit;
     }
 
     @Scheduled(fixedDelayString = "${scanner.execution.status-poll-ms:5000}")
@@ -67,8 +66,7 @@ public class SessionCloseoutService {
                                 || profile.product().equalsIgnoreCase(position.product()))
                         .toList();
                 if (!remaining.isEmpty()) {
-                    execution.manageProtection(true);
-                    audit.record("SESSION_HARD_FLAT_RETRY_SUBMITTED", "TRADING_SAFETY", "GLOBAL",
+                    audit.record("SESSION_POSITIONS_REMAIN_AT_DEADLINE", "TRADING_SAFETY", "GLOBAL",
                             "remainingPositions=" + remaining.size());
                 }
             } catch (RuntimeException error) {

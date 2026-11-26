@@ -16,6 +16,8 @@ public class SubmissionJournal {
     // A broker timeout or a rollback of the caller must retain this reservation.
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Reservation reserve(String key, BrokerOrderRequest request, String parent) {
+        if (Boolean.TRUE.equals(db.queryForObject("select exists(select 1 from execution_request_archive where idempotency_key=?)",
+                Boolean.class, key))) throw new IllegalStateException("This submission was previously archived: " + key);
         String tag = UUID.randomUUID().toString().replace("-", "").substring(0, 20);
         String fingerprint = BrokerOrderFingerprint.of(request);
         String payload;

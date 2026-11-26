@@ -60,6 +60,7 @@ public class BrokerReconciliationService {
             if (!order.response().status().equals(state.status()) || order.filledQuantity() != state.filledQuantity()
                     || !java.util.Objects.equals(order.averagePrice(), state.averagePrice()))
                 persist(state, "BROKER_ORDER_STATUS_POLLED");
+            if (state.status() == BrokerOrderStatus.UNKNOWN) riskIssues.add(order.orderId() + ": unknown broker status");
             checked++;
         }
         for (var order : rows) {
@@ -91,77 +92,82 @@ public class BrokerReconciliationService {
         ExecutionRequestEntity close = requests.findByParentOrderIdAndExitRole(parentOrderId, "CLOSE").orElse(null);
         if (parent.filledQuantity() == 0 || parent.exitFilledQuantity() == parent.filledQuantity()) return;
 
-        {
-            upsertTrades(provider.trades(parent.orderId()));
-            if (stop != null) upsertTrades(provider.trades(stop.orderId()));
-            if (close != null) upsertTrades(provider.trades(close.orderId()));
-            if (target != null) upsertTrades(provider.trades(target.orderId()));
+        refreshFills(parent);
+        refreshFills(stop);
+        refreshFills(close);
+        refreshFills(target);
 
-            List<BrokerTrade> entryTrades = trades.findByOrderIdOrderByFillTimestampAsc(parent.orderId())
-                    .stream().map(ExecutionTradeEntity::view).toList();
-            List<BrokerTrade> exitTrades = new ArrayList<>();
-            if (stop != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(stop.orderId()).stream().map(ExecutionTradeEntity::view).toList());
-            if (close != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(close.orderId()).stream().map(ExecutionTradeEntity::view).toList());
-            if (target != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(target.orderId()).stream().map(ExecutionTradeEntity::view).toList());
-            if (entryTrades.stream().mapToLong(BrokerTrade::quantity).sum() != parent.filledQuantity()) throw new IllegalStateException("Entry fills unavailable");
-            var sameInstrument = book.stream().filter(row -> parent.symbol().equalsIgnoreCase(row.state().symbol())
-                    && BrokerOrderExecutionService.sameInstrument(parent, row.state().symbol(), row.exchange(), row.product())).toList();
-            var external = sameInstrument.stream().filter(row -> row.state().filledQuantity() > 0
-                    && !row.state().side().name().equals(parent.side()) && requests.findByOrderId(row.id()).isEmpty()).toList();
-            if (!external.isEmpty()) {
-                // Only allocate an external exit when the entire session has one entry and
-                // every fill belongs to the same, temporally ordered round trip.
-                var entries = sameInstrument.stream().filter(row -> row.state().filledQuantity() > 0
-                        && row.state().side().name().equals(parent.side())).toList();
-                if (!"MIS".equalsIgnoreCase(parent.product()) || entries.size() != 1 || !entries.get(0).id().equals(parentOrderId))
-                    throw new IllegalStateException("External fills need allocation");
-                List<BrokerTrade> extra = new ArrayList<>();
-                for (var row : external) extra.addAll(provider.trades(row.id()));
-                long exits = exitTrades.stream().mapToLong(BrokerTrade::quantity).sum() + extra.stream().mapToLong(BrokerTrade::quantity).sum();
-                if (extra.stream().mapToLong(BrokerTrade::quantity).sum() != external.stream().mapToLong(o -> o.state().filledQuantity()).sum()
-                        || exits > parent.filledQuantity() || extra.stream().anyMatch(t -> !t.fillTimestamp().isAfter(entryTrades.get(entryTrades.size()-1).fillTimestamp())))
-                    throw new IllegalStateException("External fills need allocation");
-                upsertTrades(extra);
-                exitTrades.addAll(extra);
-            }
-            long knownFills = (stop == null ? 0 : stop.filledQuantity()) + (target == null ? 0 : target.filledQuantity())
-                    + (close == null ? 0 : close.filledQuantity());
-            if (exitTrades.stream().mapToLong(BrokerTrade::quantity).sum() < knownFills)
-                throw new IllegalStateException("Exit fills incomplete");
-            if (exitTrades.isEmpty()) {
-                if ((stop != null && stop.filledQuantity() > 0) || (target != null && target.filledQuantity() > 0))
-                    throw new IllegalStateException("Exit fills unavailable");
-                return;
-            }
-            exitTrades.sort(java.util.Comparator.comparing(BrokerTrade::fillTimestamp));
-
-            ExecutionPnlCalculator.Result result = ExecutionPnlCalculator.calculate(
-                    OrderSide.valueOf(parent.side()), entryTrades, exitTrades);
-            if (result == null) return;
-
-            BigDecimal brokerPnl = null;
-            String source = "TRADE_FILLS";
-            try {
-                brokerPnl = provider.dayPositions().stream()
-                        .filter(position -> parent.symbol().equalsIgnoreCase(position.symbol()))
-                        .filter(position -> parent.exchange() == null || parent.exchange().isBlank()
-                                || parent.exchange().equalsIgnoreCase(position.exchange()))
-                        .filter(position -> parent.product() == null || parent.product().isBlank()
-                                || parent.product().equalsIgnoreCase(position.product()))
-                        .map(BrokerDayPosition::realisedPnl)
-                        .filter(value -> value != null)
-                        .findFirst().orElse(null);
-                if (brokerPnl != null) source = "BROKER_POSITION";
-            } catch (RuntimeException brokerError) {
-                audit.record("BROKER_DAY_PNL_UNAVAILABLE", "BROKER_ORDER", parent.orderId(), brokerError.getMessage());
-            }
-            OffsetDateTime observedAt = OffsetDateTime.now(ZoneOffset.ofHoursMinutes(5, 30));
-            parent.updateOutcome(result, brokerPnl, source, observedAt);
-            requests.save(parent);
-            audit.record("BROKER_ORDER_PNL_RECONCILED", "BROKER_ORDER", parent.orderId(),
-                    "exitQuantity=" + result.matchedQuantity() + ", exitAveragePrice=" + result.exitAveragePrice()
-                            + ", realisedPnl=" + result.realisedPnl() + ", source=" + source);
+        List<BrokerTrade> entryTrades = trades.findByOrderIdOrderByFillTimestampAsc(parent.orderId())
+                .stream().map(ExecutionTradeEntity::view).toList();
+        List<BrokerTrade> exitTrades = new ArrayList<>();
+        if (stop != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(stop.orderId()).stream().map(ExecutionTradeEntity::view).toList());
+        if (close != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(close.orderId()).stream().map(ExecutionTradeEntity::view).toList());
+        if (target != null) exitTrades.addAll(trades.findByOrderIdOrderByFillTimestampAsc(target.orderId()).stream().map(ExecutionTradeEntity::view).toList());
+        if (entryTrades.stream().mapToLong(BrokerTrade::quantity).sum() != parent.filledQuantity()) throw new IllegalStateException("Entry fills unavailable");
+        var sameInstrument = book.stream().filter(row -> parent.symbol().equalsIgnoreCase(row.state().symbol())
+                && BrokerOrderExecutionService.sameInstrument(parent, row.state().symbol(), row.exchange(), row.product())).toList();
+        var external = sameInstrument.stream().filter(row -> row.state().filledQuantity() > 0
+                && !row.state().side().name().equals(parent.side()) && requests.findByOrderId(row.id()).isEmpty()).toList();
+        if (!external.isEmpty()) {
+            // Only allocate an external exit when the entire session has one entry and
+            // every fill belongs to the same, temporally ordered round trip.
+            var entries = sameInstrument.stream().filter(row -> row.state().filledQuantity() > 0
+                    && row.state().side().name().equals(parent.side())).toList();
+            if (!"MIS".equalsIgnoreCase(parent.product()) || entries.size() != 1 || !entries.get(0).id().equals(parentOrderId))
+                throw new IllegalStateException("External fills need allocation");
+            List<BrokerTrade> extra = new ArrayList<>();
+            for (var row : external) extra.addAll(provider.trades(row.id()));
+            long exits = exitTrades.stream().mapToLong(BrokerTrade::quantity).sum() + extra.stream().mapToLong(BrokerTrade::quantity).sum();
+            if (extra.stream().mapToLong(BrokerTrade::quantity).sum() != external.stream().mapToLong(o -> o.state().filledQuantity()).sum()
+                    || exits > parent.filledQuantity() || extra.stream().anyMatch(t -> !t.fillTimestamp().isAfter(entryTrades.get(entryTrades.size()-1).fillTimestamp())))
+                throw new IllegalStateException("External fills need allocation");
+            upsertTrades(extra);
+            exitTrades.addAll(extra);
         }
+        long knownFills = (stop == null ? 0 : stop.filledQuantity()) + (target == null ? 0 : target.filledQuantity())
+                + (close == null ? 0 : close.filledQuantity());
+        if (exitTrades.stream().mapToLong(BrokerTrade::quantity).sum() < knownFills)
+            throw new IllegalStateException("Exit fills incomplete");
+        if (exitTrades.isEmpty()) {
+            if ((stop != null && stop.filledQuantity() > 0) || (target != null && target.filledQuantity() > 0))
+                throw new IllegalStateException("Exit fills unavailable");
+            return;
+        }
+        exitTrades.sort(java.util.Comparator.comparing(BrokerTrade::fillTimestamp));
+
+        ExecutionPnlCalculator.Result result = ExecutionPnlCalculator.calculate(
+                OrderSide.valueOf(parent.side()), entryTrades, exitTrades);
+        if (result == null) return;
+
+        BigDecimal brokerPnl = null;
+        String source = "TRADE_FILLS";
+        try {
+            brokerPnl = provider.dayPositions().stream()
+                    .filter(position -> parent.symbol().equalsIgnoreCase(position.symbol()))
+                    .filter(position -> parent.exchange() == null || parent.exchange().isBlank()
+                            || parent.exchange().equalsIgnoreCase(position.exchange()))
+                    .filter(position -> parent.product() == null || parent.product().isBlank()
+                            || parent.product().equalsIgnoreCase(position.product()))
+                    .map(BrokerDayPosition::realisedPnl)
+                    .filter(value -> value != null)
+                    .findFirst().orElse(null);
+            if (brokerPnl != null) source = "BROKER_POSITION";
+        } catch (RuntimeException brokerError) {
+            audit.record("BROKER_DAY_PNL_UNAVAILABLE", "BROKER_ORDER", parent.orderId(), brokerError.getMessage());
+        }
+        OffsetDateTime observedAt = OffsetDateTime.now(ZoneOffset.ofHoursMinutes(5, 30));
+        parent.updateOutcome(result, brokerPnl, source, observedAt);
+        requests.save(parent);
+        audit.record("BROKER_ORDER_PNL_RECONCILED", "BROKER_ORDER", parent.orderId(),
+                "exitQuantity=" + result.matchedQuantity() + ", exitAveragePrice=" + result.exitAveragePrice()
+                        + ", realisedPnl=" + result.realisedPnl() + ", source=" + source);
+    }
+
+    private void refreshFills(ExecutionRequestEntity order) {
+        if (order == null || order.filledQuantity() == 0) return;
+        long retained = trades.findByOrderIdOrderByFillTimestampAsc(order.orderId()).stream()
+                .map(ExecutionTradeEntity::view).mapToLong(BrokerTrade::quantity).sum();
+        if (retained != order.filledQuantity()) upsertTrades(provider.trades(order.orderId()));
     }
 
     private void upsertTrades(List<BrokerTrade> brokerTrades) {

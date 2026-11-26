@@ -69,6 +69,7 @@ public class BrokerOrderExecutionService {
         }).orElseGet(() -> {
             requireLive();
             validateRisk(request);
+            profiles.currentForRiskDecision();
             if (journal.hasUnresolvedOtherThan(key)) throw new IllegalStateException("Unconfirmed broker submission requires reconciliation");
             verifyProtection();
             LiveOrderRiskService.RiskCheck risk = liveRisk.verify(request, java.time.OffsetDateTime.now(java.time.ZoneId.of("Asia/Kolkata")));
@@ -302,6 +303,11 @@ public class BrokerOrderExecutionService {
     void verifyProtection() {
         var positions = provider.positions();
         var book = provider.orderBook();
+        for (var outstanding : book) {
+            if (outstanding.state().status() == BrokerOrderStatus.UNKNOWN
+                    && requests.findByOrderId(outstanding.id()).isPresent())
+                throw new IllegalStateException("Unknown status for " + outstanding.id());
+        }
         for (var position : positions) {
             if (!"MIS".equalsIgnoreCase(position.product())) continue;
             boolean covered = book.stream().anyMatch(o -> o.state().symbol().equalsIgnoreCase(position.symbol())
@@ -384,6 +390,7 @@ public class BrokerOrderExecutionService {
                             working(o.state()) || !externalExitAllocated || o.state().side() == parent.state().side()))) return;
         OrderSide side = net > 0 ? OrderSide.SELL : OrderSide.BUY;
         if (stopRow != null && working(stopRow.state()) && ("MARKET".equals(stopRow.orderType())
+                || stopRow.state().status() == BrokerOrderStatus.PENDING
                 || stopRow.state().status() == BrokerOrderStatus.UNKNOWN)) return;
         boolean close = sessionClose && "MIS".equalsIgnoreCase(entry.product())
                 || stopRow != null && !working(stopRow.state());
