@@ -5,6 +5,7 @@ import com.dileephl.marketscanner.config.AutomatedExecutionProperties;
 import com.dileephl.marketscanner.config.TradingMode;
 import com.dileephl.marketscanner.config.TradingProfileService;
 import com.dileephl.marketscanner.integration.zerodha.KiteConnectProperties;
+import com.dileephl.marketscanner.api.PagedResponse;
 import com.dileephl.marketscanner.integration.zerodha.KiteOrderExecutionProvider;
 import com.dileephl.marketscanner.config.LiveExecutionProperties;
 import com.dileephl.marketscanner.marketdata.MarketInstrumentRepository;
@@ -13,6 +14,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import org.springframework.data.domain.PageRequest;
 
 /** Safety boundary: no broker call is possible unless LIVE mode and the explicit flag are enabled. */
 @Service
@@ -230,6 +234,16 @@ public class BrokerOrderExecutionService {
     @Transactional(readOnly = true)
     public java.util.List<BrokerOrderResponse> trackedOrders() {
         return requests.findAll().stream().map(ExecutionRequestEntity::response).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<ExecutionOrderView> trackedOrdersPage(int days, int page, int pageSize) {
+        int safeDays = Math.max(1, Math.min(days, 7));
+        int safePage = Math.max(0, page);
+        int safePageSize = Math.max(1, Math.min(pageSize, 50));
+        OffsetDateTime cutoff = OffsetDateTime.now(ZoneOffset.ofHoursMinutes(5, 30)).minusDays(safeDays);
+        return PagedResponse.from(requests.findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(
+                cutoff, PageRequest.of(safePage, safePageSize)), ExecutionRequestEntity::view);
     }
 
     @Transactional(readOnly = true)
