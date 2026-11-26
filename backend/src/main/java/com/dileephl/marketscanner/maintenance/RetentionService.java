@@ -30,6 +30,7 @@ public class RetentionService {
         try {
             archiveAuditEvents(cutoffTimestamp);
             archiveSignals(cutoffTimestamp);
+            archiveSignalVerifications(cutoffTimestamp);
             archiveCandles(cutoffTimestamp);
         } catch (RuntimeException exception) {
             // A retention failure must not stop market-data ingestion or order safeguards.
@@ -63,6 +64,22 @@ public class RetentionService {
                 ON CONFLICT (id) DO NOTHING
                 """, cutoff);
         jdbc.update("DELETE FROM live_signal WHERE generated_at < ?", cutoff);
+    }
+
+    private void archiveSignalVerifications(Timestamp cutoff) {
+        jdbc.update("""
+                INSERT INTO signal_verification_archive
+                    (id, provider, instrument_token, symbol, candle_start, signal_type, direction,
+                     reference_price, vwap, invalidation_reference, opening_range_high, opening_range_low,
+                     average_volume, volume_threshold, decision, analysis, order_id, created_at, updated_at, archived_at)
+                SELECT id, provider, instrument_token, symbol, candle_start, signal_type, direction,
+                       reference_price, vwap, invalidation_reference, opening_range_high, opening_range_low,
+                       average_volume, volume_threshold, decision, analysis, order_id, created_at, updated_at, CURRENT_TIMESTAMP
+                FROM signal_verification
+                WHERE created_at < ?
+                ON CONFLICT (id) DO NOTHING
+                """, cutoff);
+        jdbc.update("DELETE FROM signal_verification WHERE created_at < ?", cutoff);
     }
 
     private void archiveCandles(Timestamp cutoff) {
