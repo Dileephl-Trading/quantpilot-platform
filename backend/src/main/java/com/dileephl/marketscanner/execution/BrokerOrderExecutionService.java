@@ -289,6 +289,15 @@ public class BrokerOrderExecutionService {
         }
     }
 
+    private void validateTargetRequest(BrokerOrderRequest request) {
+        if (request == null || request.symbol() == null || request.symbol().isBlank()
+                || request.side() == null || request.quantity() <= 0
+                || request.price() == null || request.price().signum() <= 0
+                || !"LIMIT".equalsIgnoreCase(request.orderType())) {
+            throw new IllegalArgumentException("A target LIMIT order requires symbol, side, quantity and positive price");
+        }
+    }
+
     private void requireLiveForProtective() {
         if (profiles.current().mode() != TradingMode.LIVE) {
             throw new IllegalStateException("Protective broker orders require explicit LIVE trading mode");
