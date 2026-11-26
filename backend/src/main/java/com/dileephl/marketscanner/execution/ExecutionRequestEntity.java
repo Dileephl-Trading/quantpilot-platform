@@ -69,6 +69,13 @@ class ExecutionRequestEntity {
         entity.parentOrderId = parentOrderId;
         return entity;
     }
+    static ExecutionRequestEntity fromClose(String key, BrokerOrderRequest request,
+                                            BrokerOrderResponse response, String parentOrderId) {
+        var entity = fromProtective(key, request, response, parentOrderId);
+        entity.exitRole = "CLOSE";
+        return entity;
+    }
+
     void apply(BrokerOrderResponse response) {
         status = response.status().name();
         filledQuantity = response.filledQuantity();

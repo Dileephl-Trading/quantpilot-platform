@@ -83,7 +83,7 @@ public class AutomatedExecutionService {
 
     public AutomatedStatus recoverAfterReconciliation() {
         var report = execution.reconcileTrackedOrders();
-        if (!report.issues().isEmpty()) throw new IllegalStateException(String.join("; ", report.issues()));
+        if (!report.riskIssues().isEmpty()) throw new IllegalStateException(String.join("; ", report.riskIssues()));
         execution.verifyProtection();
         AutomationSafetyStateEntity state = currentSafetyState();
         state.clear();
@@ -104,7 +104,7 @@ public class AutomatedExecutionService {
         safeRecord(provider, instrumentToken, normalizedSymbol, candle, signal,
                 "RECEIVED", analysis, null);
         try {
-            if (currentSafetyState().uncertainBrokerState()) throw new IllegalStateException("Previous broker result is uncertain; manual reconciliation is required");
+            if (currentSafetyState().uncertainBrokerState()) recoverAfterReconciliation();
 
             LiveExecutionPreflightService.Preflight preflightResult = preflight.run();
             analysis += "\n\nExecution preflight:\n" + describePreflight(preflightResult);
@@ -174,6 +174,7 @@ public class AutomatedExecutionService {
                     "symbol=" + normalizedSymbol + ", signal=" + signal.type() + ", token=" + instrumentToken
                             + ", candle=" + candle.timestamp() + ", quantity=" + quantity);
         } catch (RuntimeException error) {
+            brokerAttempted = brokerAttempted && execution.submissionUnconfirmed(signalKey);
             String eventType = brokerAttempted ? "AUTOMATED_ORDER_UNCERTAIN" : "AUTOMATED_ORDER_SKIPPED";
             String decision = brokerAttempted ? "ORDER_UNCERTAIN" : "BLOCKED";
             String finalAnalysis = analysis + "\n\nDecision: " + decision + "\nReason: " + safe(error.getMessage());

@@ -1348,8 +1348,8 @@ function PlacedOrdersMUI({ notify }) {
                 <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1.5}>
                   <Box sx={{ minWidth: 0 }}>
                     <Typography variant="overline" sx={{ letterSpacing: '.12em', color: 'text.secondary' }}>OUTCOME</Typography>
-                    <Typography variant="body2" fontWeight={750}>{exitDone ? `Exit filled quantity ${item.exitFilledQuantity || 0}` : 'Awaiting a protective exit fill'}</Typography>
-                    <Typography variant="caption" color="text.secondary">{item.exitCompletedAt ? `Completed ${new Date(item.exitCompletedAt).toLocaleString()}` : 'No final exit timestamp yet'}</Typography>
+                    <Typography variant="body2" fontWeight={750}>{exitDone ? `Exit filled quantity ${item.exitFilledQuantity || 0}` : 'Awaiting matched exit fills'}</Typography>
+                    <Typography variant="caption" color="text.secondary">{item.exitCompletedAt ? `Latest exit fill ${new Date(item.exitCompletedAt).toLocaleString()}` : 'No final exit timestamp yet'}</Typography>
                   </Box>
                   <Stack direction="row" gap={2.5} flexWrap="wrap" sx={{ alignItems: 'flex-start' }}>
                     <Box><Typography variant="caption" color="text.secondary" display="block">Exit average</Typography><Typography fontWeight={850}>{moneyPrecise(item.exitAveragePrice)}</Typography></Box>
