@@ -98,7 +98,6 @@ public class AutomatedExecutionService {
                                   SignalEngine.Candle candle, SignalEngine.TradeSignal signal,
                                   CandleInterval interval) {
         if (signal == null || signal.type() == SignalEngine.SignalType.NO_TRADE) return;
-        if (!properties.isEnabled()) return;
 
         String normalizedSymbol = symbol == null ? "" : symbol.trim().toUpperCase();
         String signalKey = "AUTO-" + provider + "-" + normalizedSymbol + "-" + candle.timestamp() + "-" + signal.type();
@@ -114,6 +113,9 @@ public class AutomatedExecutionService {
             if (!preflightResult.ready()) {
                 throw new IllegalStateException("Live execution preflight failed: " + preflightResult.checks().stream()
                         .filter(check -> !check.passed()).map(LiveExecutionPreflightService.Check::detail).reduce((a, b) -> a + "; " + b).orElse("unknown"));
+            }
+            if (!properties.isEnabled()) {
+                throw new IllegalStateException("Automated execution is disabled; signal recorded for review only");
             }
 
             TradingProfile profile = profiles.current();
